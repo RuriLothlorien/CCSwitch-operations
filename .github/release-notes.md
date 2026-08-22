@@ -17,7 +17,7 @@ CCSwitch-operations 是一个可移植、可发布的 **CC Switch（CCS）** 操
 
 ## 文档
 
-仓库内 `README.md` / `README.zh-CN.md` 与 `references/` 提供完整说明（架构、九大受管应用矩阵、操作模板、坑位记录、版本行为变化）。
+仓库内 `README.md`（中文默认）/ `README.en.md`（英文）与 `references/` 提供完整说明（架构、九大受管应用矩阵、操作模板、坑位记录、版本行为变化）。
 
 ## 资源
 
@@ -44,7 +44,7 @@ CCSwitch-operations 是一个可移植、可发布的 **CC Switch（CCS）** 操
 
 ### Docs
 
-See `README.md` / `README.zh-CN.md` and `references/` in the repository for full documentation.
+See `README.md` (Chinese, default) / `README.en.md` (English) and `references/` in the repository for full documentation.
 
 ### Assets
 
