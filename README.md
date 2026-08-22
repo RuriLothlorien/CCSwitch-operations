@@ -96,6 +96,12 @@ Place the `CCSwitch-operations` folder into the agent's skills directory (for ex
 
 Use the release zip: in CC Switch, import/install the skill from the zip. The zip contains a top-level `CCSwitch-operations/` folder with `SKILL.md` at its root.
 
+Or import it directly with the deep link (change `app=` to the target agent, e.g. `claude` / `gemini`):
+
+```text
+ccswitch://v1/import?resource=skill&app=codex&name=CCSwitch-operations&repo=RuriLothlorien/CCSwitch-operations&branch=main
+```
+
 ## Usage
 
 Requires **Python 3.11+** (recommended).

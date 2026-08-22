@@ -94,6 +94,12 @@ CCSwitch-operations/
 
 使用 Release zip：在 CC Switch 中从 zip 导入/安装技能。zip 顶层为 `CCSwitch-operations/`，其根目录含 `SKILL.md`。
 
+或使用一键导入深链（把 `app=` 换成目标 agent，例如 `claude` / `gemini`）：
+
+```text
+ccswitch://v1/import?resource=skill&app=codex&name=CCSwitch-operations&repo=RuriLothlorien/CCSwitch-operations&branch=main
+```
+
 ## 使用
 
 要求 **Python 3.11+**（推荐）。
