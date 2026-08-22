@@ -19,7 +19,7 @@ If this skill helps you, please give it a ⭐.
 
 ## Why this skill?
 
-CC Switch spreads its configuration across a database, `settings.json`, and each app's live config files. Maintaining it by hand means remembering a dozen locations, then checking **every agent one by one** — Codex, Claude Code, Claude Desktop, Gemini, and the rest — to see whether a change actually took effect. Miss one spot and the next provider switch overwrites your work, or a tool silently stops working. Worse, **AI agents maintaining their own configuration rarely know about your CC Switch installation** — their edits to `config.toml` / `settings.json` can conflict with what CCS manages and get overwritten on the next switch. You should not have to spend time and effort manually keeping CCS and your agents consistent.
+CC Switch spreads its configuration across a database, `settings.json`, and each app's live config files. Maintaining it by hand means remembering a dozen locations, then checking **every agent one by one** — Codex, Claude Code, Claude Desktop, Gemini, and the rest — to see whether a change actually took effect. Miss one spot and the next provider switch overwrites your work, or a tool silently stops working. Worse, **AI agents maintaining their own configuration rarely know about your CC Switch installation** — their edits to `config.toml` / `settings.json` can conflict with what CCS manages and get overwritten on the next switch. Even worse, **CC Switch itself can misoperate your configuration** — for example, in 3.20.0, saving the Codex provider edit page without changing anything can reorder `config.toml`, strip common config, and write an empty-command MCP block, causing all kinds of trouble. You should not have to spend time and effort manually keeping CCS and your agents consistent.
 
 This skill turns safe maintenance into one repeatable workflow:
 
@@ -29,6 +29,7 @@ This skill turns safe maintenance into one repeatable workflow:
 - **Automatic path discovery, cross-platform**: honors `CC_SWITCH_HOME` / `~/.cc-switch` on Windows, macOS, and Linux
 - **Chinese-safe by design**: UTF-8-safe reads and writes
 - **Inspect before you change**: read-only `doctor` / `check` commands show the current state first
+- **Proactive defense against misoperations**: `check --strict` / `doctor --audit` / `repair` block broken writes, verify after writes, and fix damage caused by CCS
 
 ## Compatibility
 

@@ -19,7 +19,7 @@
 
 ## 为什么需要这个技能？
 
-CC Switch 的配置分散在数据库、`settings.json` 和多个应用的 live 配置文件里。手动维护的痛点是：位置多、容易忘，改完还要去 Codex、Claude Code、Claude Desktop、Gemini 等每个 agent 里**逐个确认**是否生效，稍不留神漏一处，下次切换供应商时配置就被覆盖、工具就失效。更麻烦的是，**AI 在自我维护时往往只顾自己的 agent 配置，不会顾及你本机安装的 CC Switch**——它自己写的 `config.toml` / `settings.json` 可能和 CCS 的管理状态冲突，下一次切换就被回写覆盖。用户不应该费时费力地手动维护 CCS 与你的 agents 的一致性。
+CC Switch 的配置分散在数据库、`settings.json` 和多个应用的 live 配置文件里。手动维护的痛点是：位置多、容易忘，改完还要去 Codex、Claude Code、Claude Desktop、Gemini 等每个 agent 里**逐个确认**是否生效，稍不留神漏一处，下次切换供应商时配置就被覆盖、工具就失效。更麻烦的是，**AI 在自我维护时往往只顾自己的 agent 配置，不会顾及你本机安装的 CC Switch**——它自己写的 `config.toml` / `settings.json` 可能和 CCS 的管理状态冲突，下一次切换就被回写覆盖。更糟的是，**CCS 自己也可能误操作你的配置**——例如 3.20.0 的 Codex 供应商编辑页，即使零改动直接保存，也可能重排 `config.toml`、剥离通用配置、写入空命令 MCP 坏块，带来各种麻烦。用户不应该费时费力地手动维护 CCS 与你的 agents 的一致性。
 
 这个技能把“安全维护”沉淀成一套方法论和工具：
 
@@ -29,6 +29,7 @@ CC Switch 的配置分散在数据库、`settings.json` 和多个应用的 live 
 - **自动发现路径、跨平台**：支持 `CC_SWITCH_HOME` / `~/.cc-switch`，Windows / macOS / Linux 通用
 - **中文内容安全**：UTF-8 安全读写，不再担心乱码
 - **先看后改**：`doctor` / `check` 只读检查环境与配置健康度，动手前先看清现状
+- **主动防御误操作**：`check --strict` / `doctor --audit` / `repair` 在写入前拦截异常、写入后校验、一键修复 CCS 造成的损坏
 
 ## 版本兼容
 
