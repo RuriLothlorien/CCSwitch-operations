@@ -122,6 +122,14 @@ python scripts/ccs_db.py doctor
 
 # Safe checks
 python scripts/ccs_db.py check
+python scripts/ccs_db.py check --strict      # structural safety (MCP semantics / markers / header order / live-only)
+python scripts/ccs_db.py doctor --audit      # three-way consistency audit
+
+# Write commands run an automatic preflight; broken configs are refused
+# (put --force before the subcommand to override)
+python scripts/ccs_db.py repair --target config.toml --mode header-order   # dry-run
+python scripts/ccs_db.py common-config status --app-type codex
+python scripts/ccs_db.py common-config get --app-type codex
 
 # Examples (see references/operations.md for the full set)
 python scripts/ccs_db.py mcp-upsert --name my-server --config-file server_config.json --enable-codex --enable-claude

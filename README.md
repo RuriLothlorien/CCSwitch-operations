@@ -122,6 +122,13 @@ python scripts/ccs_db.py doctor
 
 # 安全校验
 python scripts/ccs_db.py check
+python scripts/ccs_db.py check --strict      # 结构安全（MCP 语义/标记/表头顺序/live-only）
+python scripts/ccs_db.py doctor --audit      # 三处一致性审计
+
+# 写操作会自动 preflight；配置已损坏时会被拦截（--force 放在子命令前可显式跳过）
+python scripts/ccs_db.py repair --target config.toml --mode header-order   # dry-run
+python scripts/ccs_db.py common-config status --app-type codex
+python scripts/ccs_db.py common-config get --app-type codex
 
 # 示例（完整命令见 references/operations.md）
 python scripts/ccs_db.py mcp-upsert --name my-server --config-file server_config.json --enable-codex --enable-claude

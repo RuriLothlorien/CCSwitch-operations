@@ -166,3 +166,50 @@ json.load(open("claude_desktop_config.json", encoding="utf-8-sig"))  # JSON
 ```
 
 `python scripts/ccs_db.py check` 覆盖 `providers`（name/notes/settings_config）、`settings.value`、`model_pricing.display_name`（JSON 内只报含 CJK 或 `??` 的可疑 `?`，URL 查询串不误报）。`codex mcp list` 检查 MCP 是否按预期注册；CCS 重启后复查 config 未被回写；`settings.json` 的 `currentProvider*` 与 `providers.is_current` 一致。
+
+## 结构安全（v1.1.0+）
+
+所有写操作都会自动运行只读 preflight，配置已损坏时拒绝写入（`--force` 放在子命令前可显式跳过）：
+
+```bash
+# 结构审计（独立只读命令）
+python scripts/ccs_db.py check --strict
+python scripts/ccs_db.py doctor --audit
+python scripts/ccs_db.py doctor --compare-backup backups/db_backup_xxx.db
+
+# 写操作前快照 / 之后对比
+python scripts/ccs_db.py snapshot
+python scripts/ccs_db.py diff <snapshot-dir>
+
+# 修复（默认 dry-run，--apply 写入并自动备份）
+python scripts/ccs_db.py repair --target config.toml --mode header-order
+python scripts/ccs_db.py repair --target provider --provider-id <id> --mode live-only --apply
+python scripts/ccs_db.py repair --target common --mode both --apply
+
+# provider-block 替换后自动做语义校验
+python scripts/ccs_db.py provider-block --app-type codex \
+  --section "[mcp_servers.foo]" --block-file block.toml --replace --check-semantics
+```
+
+## 通用配置维护（v1.1.0+）
+
+```bash
+# 只读
+python scripts/ccs_db.py common-config get --app-type codex
+python scripts/ccs_db.py common-config check --app-type codex
+python scripts/ccs_db.py common-config status --app-type codex
+
+# 修改（必须显式调用；默认 dry-run，--apply 写入并自动备份）
+python scripts/ccs_db.py common-config set --app-type codex --content-file snippet.toml --apply
+python scripts/ccs_db.py common-config set-key --app-type codex --key model_reasoning_effort --value '"max"' --apply
+python scripts/ccs_db.py common-config remove-key --app-type codex --key web_search --apply
+
+# 提取（用户显式调用；执行后自动打勾）
+python scripts/ccs_db.py common-config extract --app-type codex --provider-id <id> --apply
+
+# 打勾 / 取消打勾（enable 前自动做幂等审查）
+python scripts/ccs_db.py common-config enable --app-type codex --provider-id <id> --apply
+python scripts/ccs_db.py common-config disable --app-type codex --provider-id <id> --apply
+```
+
+交互说明：`set*` 写完后在 TTY 下询问“是否同步当前配置并打勾”；非交互默认不同步，可用 `--sync-and-enable` 显式要求（同样先过幂等审查）。
