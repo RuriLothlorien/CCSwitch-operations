@@ -6,9 +6,15 @@
   - 供应商 `settings_config.config` 与 `~/.codex/config.toml` 块顺序重排（MCP 服务器块被移位）；
   - 通用配置块（plugins / marketplaces / projects / hooks 等）从供应商配置中被剥离；
   - 非通用内容（如新信任的 `[projects]`）被固化进供应商配置；
-  - 标记注释错位（`# >>> ... begin/end <<<` 丢配对）；
-  - url-only 远程 MCP（esp-cn-docs）被写成 `type = "stdio"` + `command = ""` + `url = ...`。
+- 标记注释错位（`# >>> ... begin/end <<<` 丢配对）；
+- url-only 远程 MCP（esp-cn-docs）被写成 `type = "stdio"` + `command = ""` + `url = ...`。
 - “通用配置提取”同样产出混乱结果。
+
+具体到表头/键级的表现：
+- 顶层键（如 `notify = [...]`）被移动/错位；
+- `[plugins]` / `[marketplaces]` / `[desktop]` 等公共块被剥离或移位；
+- `[mcp_servers]` 空父表与 `[mcp_servers.node_repl]` 之间被插入无关段；
+- `[mcp_servers.node_repl]` / `[mcp_servers.node_repl.env]` 的键（`NODE_REPL_NODE_PATH` / `CODEX_CLI_PATH` / `NODE_REPL_TRUSTED_SERVICES` / `SKY_CUA_NATIVE_PIPE*` 等）被替换、删除或重排。
 
 ## 根因（源码级）
 
@@ -37,6 +43,7 @@
 - 所有写操作自动 preflight：检测空命令 MCP、标记不配对、表头乱序/越权、live-only 混入；
 - `repair` 提供 header-order / live-only 修复（dry-run + `--apply`）；
 - `common-config` 维护 snippet 与勾选状态（幂等审查、提取自动打勾）；
+- 保存后做字节级对比（`snapshot`/`diff` 或对照 `config.toml.bak`）；`check --strict` 检测表头乱序/空命令 MCP/live-only 混入；`repair --mode header-order` 修复移位；
 - **不要使用 CCS 3.20.0 编辑页保存/提取 Codex 供应商配置**。
 
 上游 issue：[#6719](https://github.com/farion1231/cc-switch/issues/6719)

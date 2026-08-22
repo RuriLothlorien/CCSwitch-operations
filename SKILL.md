@@ -65,6 +65,7 @@ Methodology for safely operating CC Switch (CCS): backup first, stop the app, ed
 
 - **主动预检**：所有写操作（`provider-block` / `provider-env` / `mcp-upsert` / `prompt-set` / `skill-upsert` / `set-flags` / `common-config set|set-key|remove-key|extract` / `repair --apply`）执行前会自动运行只读结构审计；发现空命令 MCP、标记不配对、表头乱序/越权、live-only 混入等异常时拒绝写入并提示修复命令（`--force` 可显式覆盖）。
 - **已知上游缺陷**：CCS 3.20.0 的“编辑供应商页面”即使零改动直接保存，也会因前端 smol-toml 重排 + 后端 toml_edit 剥离/合并通用配置，导致 config.toml 块重排、公共块被删、标记错位，甚至把 url-only 远程 MCP 写成 `type="stdio"` + `command=""`。**不要用编辑页保存/提取 Codex 供应商配置**；改配置请使用本技能命令。
+  - 常见现象包括：顶层 `notify = [...]` 错位、`[plugins]` / `[marketplaces]` 等公共块被剥离、`[mcp_servers]` 与 `[mcp_servers.node_repl(.env)]` 块/键被改写或重排。
 - **通用配置维护**：`common-config` 仅用户显式调用才会修改 snippet；`enable`（打勾）前必须通过幂等审查（剥离 snippet 后再合并与原始语义等价）；`extract` 执行后自动打勾；`set*` 写完后会询问是否同步当前配置并打勾（非交互默认不同步，`--sync-and-enable` 可显式要求）。
 
 ## References
