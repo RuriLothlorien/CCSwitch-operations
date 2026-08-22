@@ -15,7 +15,7 @@ import zipfile
 from pathlib import Path
 
 TOP_LEVEL = "CCSwitch-operations"
-EXCLUDE_DIRS = {".git", ".github", "dist", "__pycache__", ".venv", ".pytest_cache"}
+EXCLUDE_DIRS = {".git", ".github", "dist", "__pycache__", ".venv", ".pytest_cache", "tests"}
 EXCLUDE_SUFFIXES = {".pyc"}
 EXCLUDE_FILES = {".gitignore", "build-zip.py"}
 
