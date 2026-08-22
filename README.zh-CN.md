@@ -1,8 +1,15 @@
 # CCSwitch Operations
 
+![License](https://img.shields.io/github/license/RuriLothlorien/CCSwitch-operations)
+![Release](https://img.shields.io/github/v/release/RuriLothlorien/CCSwitch-operations)
+![Python](https://img.shields.io/badge/Python-3.11%2B-blue)
+![Stars](https://img.shields.io/github/stars/RuriLothlorien/CCSwitch-operations?style=social)
+
 可移植、可发布的 **CC Switch（CCS）** 操作技能：安全地维护全局提示词、Skills、MCP 服务器、供应商与 Codex 模型目录，覆盖 CCS 管理的九个应用。
 
 本包自包含：**没有安装脚本，也不依赖任何外部辅助脚本**。安装方式只有两种——把技能目录解压/复制到 agent 的 skills 目录，或在 CC Switch 中从 zip 导入。
+
+如果这个技能对你有帮助，欢迎点个 Star ⭐。
 
 ## 功能特性
 

@@ -1,10 +1,17 @@
 # CCSwitch Operations
 
+![License](https://img.shields.io/github/license/RuriLothlorien/CCSwitch-operations)
+![Release](https://img.shields.io/github/v/release/RuriLothlorien/CCSwitch-operations)
+![Python](https://img.shields.io/badge/Python-3.11%2B-blue)
+![Stars](https://img.shields.io/github/stars/RuriLothlorien/CCSwitch-operations?style=social)
+
 > [中文文档](README.zh-CN.md) | English
 
 A portable, publishable skill for operating **CC Switch (CCS)** safely: global prompts, skills, MCP servers, providers, and the Codex model catalog, across the nine apps CCS manages.
 
 The package is self-contained: no installer script, no external helper dependencies. Installation is just copying/unzipping the skill folder into an agent's skills directory (or importing the zip from CC Switch).
+
+If this skill helps you, please give it a ⭐.
 
 ## Features
 
