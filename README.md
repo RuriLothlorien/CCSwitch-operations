@@ -1,5 +1,7 @@
 # CCSwitch Operations
 
+> [中文文档](README.zh-CN.md) | English
+
 A portable, publishable skill for operating **CC Switch (CCS)** safely: global prompts, skills, MCP servers, providers, and the Codex model catalog, across the nine apps CCS manages.
 
 The package is self-contained: no installer script, no external helper dependencies. Installation is just copying/unzipping the skill folder into an agent's skills directory (or importing the zip from CC Switch).

@@ -297,6 +297,7 @@ class PackageTest(unittest.TestCase):
                 self.assertNotIn(".gitignore", name)
             self.assertIn("CCSwitch-operations/SKILL.md", names)
             self.assertIn("CCSwitch-operations/scripts/ccs_db.py", names)
+            self.assertIn("CCSwitch-operations/README.zh-CN.md", names)
 
             # The extracted package must be usable standalone.
             extract_dir = Path(tmp) / "extract"
