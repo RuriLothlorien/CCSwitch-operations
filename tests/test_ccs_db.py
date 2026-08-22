@@ -328,6 +328,14 @@ class PackageTest(unittest.TestCase):
         self.assertIn("仓库结构", readme_zh)
         self.assertNotIn("发布 GitHub Release", readme_zh)
 
+    def test_release_notes_are_chinese_and_wired_into_workflow(self):
+        notes = (REPO / ".github" / "release-notes.md").read_text(encoding="utf-8")
+        workflow = (REPO / ".github" / "workflows" / "release.yml").read_text(encoding="utf-8")
+        self.assertIn("简介", notes)
+        self.assertIn("CC Switch", notes)
+        self.assertIn("body_path", workflow)
+        self.assertIn("release-notes.md", workflow)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
