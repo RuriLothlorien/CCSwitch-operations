@@ -13,7 +13,7 @@
 
 ## 为什么需要这个技能？
 
-CC Switch 的配置分散在数据库、`settings.json` 和多个应用的 live 配置文件里。手动维护的痛点是：位置多、容易忘，改完还要去 Codex、Claude Code、Claude Desktop、Gemini 等每个 agent 里**逐个确认**是否生效，稍不留神漏一处，下次切换供应商时配置就被覆盖、工具就失效。更麻烦的是，**AI 在自我维护时往往只顾自己的 agent 配置，不会顾及你本机安装的 CC Switch**——它自己写的 `config.toml` / `settings.json` 可能和 CCS 的管理状态冲突，下一次切换就被回写覆盖。用户不应该、也不需要直接去操作数据库。
+CC Switch 的配置分散在数据库、`settings.json` 和多个应用的 live 配置文件里。手动维护的痛点是：位置多、容易忘，改完还要去 Codex、Claude Code、Claude Desktop、Gemini 等每个 agent 里**逐个确认**是否生效，稍不留神漏一处，下次切换供应商时配置就被覆盖、工具就失效。更麻烦的是，**AI 在自我维护时往往只顾自己的 agent 配置，不会顾及你本机安装的 CC Switch**——它自己写的 `config.toml` / `settings.json` 可能和 CCS 的管理状态冲突，下一次切换就被回写覆盖。用户不应该费时费力地手动维护 CCS 与你的 agents 的一致性。
 
 这个技能把“安全维护”沉淀成一套方法论和工具：
 

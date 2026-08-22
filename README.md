@@ -15,7 +15,7 @@ If this skill helps you, please give it a ⭐.
 
 ## Why this skill?
 
-CC Switch spreads its configuration across a database, `settings.json`, and each app's live config files. Maintaining it by hand means remembering a dozen locations, then checking **every agent one by one** — Codex, Claude Code, Claude Desktop, Gemini, and the rest — to see whether a change actually took effect. Miss one spot and the next provider switch overwrites your work, or a tool silently stops working. Worse, **AI agents maintaining their own configuration rarely know about your CC Switch installation** — their edits to `config.toml` / `settings.json` can conflict with what CCS manages and get overwritten on the next switch. Users should not have to touch the database at all.
+CC Switch spreads its configuration across a database, `settings.json`, and each app's live config files. Maintaining it by hand means remembering a dozen locations, then checking **every agent one by one** — Codex, Claude Code, Claude Desktop, Gemini, and the rest — to see whether a change actually took effect. Miss one spot and the next provider switch overwrites your work, or a tool silently stops working. Worse, **AI agents maintaining their own configuration rarely know about your CC Switch installation** — their edits to `config.toml` / `settings.json` can conflict with what CCS manages and get overwritten on the next switch. You should not have to spend time and effort manually keeping CCS and your agents consistent.
 
 This skill turns safe maintenance into one repeatable workflow:
 
