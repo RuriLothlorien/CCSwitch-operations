@@ -1,23 +1,9 @@
-# v1.1.0 增量更新
+# v1.1.1 增量更新
 
-## 新增能力（相对 v1.0.0）
+## 新增能力（相对 v1.1.0）
 
-- 结构安全审计：`check --strict`（空命令/缺失命令的 stdio MCP、url-only MCP 误写、标记配对、表头乱序/越权、live-only 混入）
-- 三处一致性审计：`doctor --audit`（面板 MCP ↔ 供应商配置 ↔ config.toml）、`doctor --compare-backup`
-- 写操作主动预检：配置已损坏时自动拒绝写入（`--force` 可显式跳过）
-- 快照与对比：`snapshot` / `diff`
-- 修复工具：`repair`（表头顺序 / live-only，默认 dry-run，`--apply` 写入并自动备份）
-- 通用配置维护：`common-config get/check/status/set/set-key/remove-key/extract/enable/disable`（幂等审查、提取自动打勾；仅支持 codex/claude/gemini，其余 agent 自动忽略）
-- `provider-block --check-semantics`
-- 已知上游缺陷警示：CCS 3.20.0 编辑页“零改动保存”会破坏 Codex 配置，已在 README/SKILL 中明确并建议使用本技能
-
-## 修复 / 改进
-
-- 修复 `common-config set-key` 在 snippet 无 preamble 时无法新增顶层 key
-- `check --strict` 增加 stdio MCP 缺失 command 检测
-- `doctor` 默认输出结构健康摘要
-- `repair` 改为最小修复：合法布局零改动
-- 对不支持通用配置的 agent 直接忽略，保证兼容
+- 顶层键顺序异常检测与修复：`check --strict` 检测 `notify = [...]` 等顶层键被挪进 `[table]` 内部；`repair --mode header-order --apply` 自动移回 preamble（所有 `[table]` 之前）
+- 文档补充：README / SKILL / pitfalls 增加“CCS 3.20.0 可能误操作配置”的痛点，以及 `[plugins]` / `[marketplaces]` / `[mcp_servers.node_repl(.env)]` / `notify =` 等具体表头/键级现象与对策
 
 ## 更新安装方法
 
@@ -41,12 +27,10 @@ python scripts/ccs_db.py doctor --audit
 
 ---
 
-## v1.1.0 Incremental (English)
+## v1.1.1 Incremental (English)
 
-- Structural safety: `check --strict`, `doctor --audit`, proactive write preflight, `snapshot` / `diff`, `repair` (dry-run + `--apply`)
-- Common-config maintenance: `common-config ...` with idempotence checks (codex/claude/gemini only; other agents ignored)
-- `provider-block --check-semantics`
-- Fixes: `set-key` without preamble, stdio missing-command detection, `doctor` health summary, minimal repair
+- New: `check --strict` detects top-level keys (e.g. `notify = [...]`) misplaced inside `[table]` blocks; `repair --mode header-order --apply` moves them back to the preamble
+- Docs: README / SKILL / pitfalls now cover the "CCS 3.20.0 may misoperate your config" pain point and concrete symptoms (`[plugins]`, `[marketplaces]`, `[mcp_servers.node_repl(.env)]`, `notify =`)
 
 ### Update / Install
 
