@@ -1,0 +1,5 @@
+<!-- example-rule:begin -->
+这是一个示例全局提示词块。替换为实际内容后使用：
+
+python scripts/ccs_db.py prompt-set --app-type codex --content-file prompt-global.txt
+<!-- example-rule:end -->

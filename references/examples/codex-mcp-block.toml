@@ -1,0 +1,7 @@
+[mcp_servers.example-websearch]
+command = "npx"
+args = ["-y", "mcp-remote", "https://example.com/WebSearch/mcp", "--header", "Authorization:${EXAMPLE_AUTH}", "--transport", "http-first"]
+startup_timeout_sec = 120
+
+[mcp_servers.example-websearch.env]
+EXAMPLE_AUTH = "Bearer <replace-me>"

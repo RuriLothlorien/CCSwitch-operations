@@ -1,0 +1,16 @@
+{
+  "command": "npx",
+  "args": [
+    "-y",
+    "mcp-remote",
+    "https://example.com/WebSearch/mcp",
+    "--header",
+    "Authorization:${EXAMPLE_AUTH}",
+    "--transport",
+    "http-first"
+  ],
+  "type": "stdio",
+  "env": {
+    "EXAMPLE_AUTH": "Bearer <replace-me>"
+  }
+}

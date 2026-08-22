@@ -1,0 +1,162 @@
+# 操作命令模板
+
+所有命令同时给出 PowerShell 与 bash 两种写法；路径用 `$CC_HOME`（默认 `~/.cc-switch`）和 `$S`（本技能脚本路径）表示。
+
+```powershell
+$CC_HOME = if ($env:CC_SWITCH_HOME) { $env:CC_SWITCH_HOME } else { Join-Path $HOME '.cc-switch' }
+$S = Join-Path $PSScriptRoot 'scripts\ccs_db.py'   # 在技能目录内执行时
+```
+
+```bash
+CC_HOME="${CC_SWITCH_HOME:-$HOME/.cc-switch}"
+S="$(dirname "$0")/scripts/ccs_db.py"              # 在技能目录内执行时
+```
+
+## 备份
+
+PowerShell：
+```powershell
+$stamp='yyyyMMdd-<slug>'
+Copy-Item <文件> "<文件>.bak-$stamp" -Force
+Copy-Item "$CC_HOME\cc-switch.db" "$CC_HOME\backups\db_backup_$stamp.db" -Force
+```
+
+bash：
+```bash
+stamp="$(date +%Y%m%d)-<slug>"
+cp "$CC_HOME/cc-switch.db" "$CC_HOME/backups/db_backup_$stamp.db"
+```
+
+## 停 / 启 CCS
+
+PowerShell：
+```powershell
+Get-Process -Name 'cc-switch' -ErrorAction SilentlyContinue | Stop-Process -Force
+Start-Process -FilePath (Join-Path $env:LOCALAPPDATA 'Programs\CC Switch\cc-switch.exe') -WindowStyle Hidden
+```
+
+bash / macOS：
+```bash
+pkill -f cc-switch || true
+open -a "CC Switch"   # macOS；Windows 上按安装位置启动
+```
+
+> CCS 启动路径因平台/安装方式而异；以实际安装位置为准。
+
+## 常用 DB 操作（推荐：内置脚本）
+
+```powershell
+python $S doctor                 # 打印解析出的路径、schema、各应用供应商
+python $S check                  # 检查全库中文是否出现可疑 '?'
+```
+
+```bash
+python "$S" doctor
+python "$S" check
+```
+
+### MCP 记录
+
+JSON 用 `--config-file`（避免 shell 剥掉双引号），tags 用逗号列表，中文可内联：
+
+```powershell
+python $S mcp-upsert --name dashscope-websearch `
+  --config-file server_config.json `
+  --description "DashScope 网页搜索（经 mcp-remote 桥接）" --tags "stdio,websearch" `
+  --enable-codex --enable-claude
+```
+
+```bash
+python "$S" mcp-upsert --name dashscope-websearch \
+  --config-file server_config.json \
+  --description "DashScope 网页搜索（经 mcp-remote 桥接）" --tags "stdio,websearch" \
+  --enable-codex --enable-claude
+```
+
+### 全局提示词
+
+```powershell
+python $S prompt-set --app-type codex --content-file prompts_codex.txt
+```
+
+`--app-type` 支持 9 个应用：`codex` / `claude` / `claude-desktop` / `gemini` / `grokbuild` / `opencode` / `openclaw` / `hermes` / `pi`。
+
+### skill 注册
+
+```powershell
+python $S skill-upsert --name my-skill --description "我的技能" --enable-codex
+```
+
+编辑本地 `SKILL.md` 后必须重跑一次刷新 `content_hash`；repo 安装的 skill（`repo_owner` 非空）不要手改；Pi 没有 DB 开关（存在即启用）。
+
+### 供应商 config 文本
+
+```powershell
+python $S provider-block --section "[mcp_servers.foo]" --block-file block.toml `
+  --insert-before "[mcp_servers.bar]"
+python $S provider-block --section "[mcp_servers.foo]" --block-file block.toml --replace
+```
+
+供应商 ID 解析顺序：`--provider-id` → `settings.json` 的 `currentProvider*` → `providers.is_current=1`；解析失败会明确报错。`provider-block` 只适用于有 `config` TOML 文本的供应商（如 codex/gemini）；claude/claude-desktop 用 `provider-env`。
+
+### 供应商环境变量
+
+```powershell
+python $S provider-env --app-type claude `
+  --set ANTHROPIC_BASE_URL=https://api.example.com/anthropic --remove ENABLE_TOOL_SEARCH
+```
+
+### 只切启用标志
+
+```powershell
+python $S set-flags --table mcp_servers --name my-server --claude 1 --codex 1
+python $S set-flags --table skills --name my-skill --claude 0
+```
+
+支持的开关：`--codex` `--claude` `--gemini` `--opencode` `--hermes` `--grokbuild`。
+
+## 安装技能到各应用（复制/链接）
+
+PowerShell（Junction，无需管理员）：
+```powershell
+New-Item -ItemType Junction -Path "$HOME\.codex\skills\<name>" -Target "$CC_HOME\skills\<name>"
+```
+
+bash（符号链接）：
+```bash
+ln -s "$CC_HOME/skills/<name>" "$HOME/.codex/skills/<name>"
+```
+
+删除只删链接本身，不要递归删除目标内容。
+
+## MCP 三处同步（以远程 HTTP 为例）
+
+仅适用于用户自建 / CCS 管理的 MCP；官方/内置服务器（如 `openaiDeveloperDocs`）不在 `mcp_servers` 表，属正常。
+
+`~/.codex/config.toml`（Codex 实际生效）：
+```toml
+[mcp_servers.dashscope-websearch]
+command = "npx"
+args = ["-y", "mcp-remote", "https://example.com/WebSearch/mcp", "--header", "Authorization:${DASHSCOPE_AUTH}", "--transport", "http-first"]
+startup_timeout_sec = 120
+
+[mcp_servers.dashscope-websearch.env]
+DASHSCOPE_AUTH = "Bearer <key>"
+```
+
+`mcp_servers` 表 `server_config`（CCS 面板）：
+```json
+{"command":"npx","args":["-y","mcp-remote","https://example.com/WebSearch/mcp","--header","Authorization:${DASHSCOPE_AUTH}","--transport","http-first"],"type":"stdio","env":{"DASHSCOPE_AUTH":"Bearer <key>"}}
+```
+
+codex provider 的 `settings_config.config` 文本：追加与 config.toml 相同的 TOML 块。
+
+## 校验
+
+```python
+import tomllib, json
+tomllib.load(open("config.toml", "rb"))          # TOML
+json.load(open("claude_desktop_config.json", encoding="utf-8-sig"))  # JSON
+```
+
+`python scripts/ccs_db.py check` 覆盖 `providers`（name/notes/settings_config）、`settings.value`、`model_pricing.display_name`（JSON 内只报含 CJK 或 `??` 的可疑 `?`，URL 查询串不误报）。`codex mcp list` 检查 MCP 是否按预期注册；CCS 重启后复查 config 未被回写；`settings.json` 的 `currentProvider*` 与 `providers.is_current` 一致。

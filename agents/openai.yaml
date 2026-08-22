@@ -1,0 +1,4 @@
+interface:
+  display_name: "CC Switch Operations"
+  short_description: "Safely modify and sync CC Switch prompts, skills, MCP configs, and providers"
+  default_prompt: "Use the CCSwitch-operations methodology to safely modify or sync CC Switch configuration"

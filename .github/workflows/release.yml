@@ -1,0 +1,31 @@
+name: Release Skill ZIP
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Build zip
+        run: python scripts/build-zip.py --version "${GITHUB_REF_NAME#v}"
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*.zip
+          draft: true
+          generate_release_notes: true
