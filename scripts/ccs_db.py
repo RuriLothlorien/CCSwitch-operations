@@ -526,24 +526,55 @@ def cmd_doctor(args):
     settings_ids = load_settings_provider_ids(cc_home)
     print("settings currentProvider*:", {k: v for k, v in settings_ids.items() if v})
 
+    issues = collect_structural_issues(cc_home, db_path)
+    if issues:
+        print(f"structural issues: {len(issues)} (run 'doctor --audit' or 'check --strict' for details)")
+    else:
+        print("structural issues: 0")
+
     if getattr(args, "audit", False):
         print("== audit ==")
-        issues = collect_structural_issues(cc_home, db_path, ("providers", "config", "common"))
         if issues:
             for iss in issues[:80]:
                 print("  -", iss)
         else:
             print("  no structural issues")
         con = connect(db_path)
+        panel_names = {
+            r["id"] for r in con.execute(
+                "SELECT id FROM mcp_servers WHERE enabled_codex=1"
+            )
+        }
+        live_names = set()
+        cfg_path = codex_config_path()
+        if cfg_path.exists():
+            live_names = {
+                path[1]
+                for h, path, _, _ in parse_sections(cfg_path.read_text(encoding="utf-8"))
+                if path and len(path) >= 2 and path[0] == "mcp_servers"
+            }
         for r in con.execute(
             "SELECT id, name, settings_config FROM providers WHERE app_type='codex'"
         ):
             cfg = json.loads(r["settings_config"] or "{}").get("config", "")
-            names = [
-                h for h, path, _, _ in parse_sections(cfg)
-                if path and path[0] == "mcp_servers" and len(path) == 1
-            ]
-            print(f"  provider[{r['name']}] mcp sections: {len(names)}")
+            prov_names = {
+                path[1]
+                for h, path, _, _ in parse_sections(cfg)
+                if path and len(path) >= 2 and path[0] == "mcp_servers"
+            }
+            only_prov = sorted(prov_names - panel_names)
+            only_panel = sorted(panel_names - prov_names)
+            only_live = sorted(live_names - prov_names)
+            if only_prov or only_panel or only_live:
+                print(f"  provider[{r['name']}] mcp mismatch:")
+                if only_prov:
+                    print(f"    provider-only: {only_prov}")
+                if only_panel:
+                    print(f"    panel-only: {only_panel}")
+                if only_live:
+                    print(f"    live-only: {only_live}")
+            else:
+                print(f"  provider[{r['name']}] mcp: consistent")
         con.close()
 
     if getattr(args, "compare_backup", None):
@@ -648,6 +679,8 @@ def mcp_semantic_issues(text):
             m = _body_map(body)
             if m.get("type") == '"stdio"' and m.get("command") == '""':
                 issues.append(f"{header}: stdio MCP with empty command")
+            if m.get("type") == '"stdio"' and "command" not in m:
+                issues.append(f"{header}: stdio MCP missing command")
             if "url" in m and m.get("command") == '""':
                 issues.append(f"{header}: url-only remote MCP written with empty stdio command")
     return issues
@@ -1019,26 +1052,6 @@ def edit_snippet_key(app_type, content, key, value, remove):
         parts = key.split(".")
         sections = parse_sections(content)
         if len(parts) == 1:
-            # top-level key
-            new_lines = []
-            found = False
-            for header, path, i, body in sections:
-                if path is None:
-                    for line in body:
-                        if _is_top_key_line(line, {key}):
-                            found = True
-                            if not remove:
-                                new_lines.append(f"{key} = {value}")
-                            continue
-                        new_lines.append(line)
-                    if not found and not remove:
-                        new_lines.append(f"{key} = {value}")
-                else:
-                    new_lines.extend(body)
-                if header is not None:
-                    # body already copied; no need to re-add header
-                    pass
-            # rebuild: sections order lost; rebuild manually below
             return _rebuild_from_lines(sections, key, value, remove, parts)
         else:
             sec_name = "[" + ".".join(parts[:-1]) + "]"
@@ -1088,6 +1101,14 @@ def edit_snippet_key(app_type, content, key, value, remove):
 
 
 def _rebuild_from_lines(sections, key, value, remove, parts):
+    if not any(s[0] is None for s in sections) and not remove:
+        out = [f"{key} = {value}"]
+        for idx, (header, path, i, body) in enumerate(sections):
+            out.append("")
+            if header is not None:
+                out.append(header)
+            out.extend(body)
+        return "\n".join(out).rstrip("\n") + "\n"
     out = []
     changed = False
     for idx, (header, path, i, body) in enumerate(sections):
