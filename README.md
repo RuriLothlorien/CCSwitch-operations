@@ -52,7 +52,17 @@ Every write follows a safe, verifiable flow:
 4. **Validate** TOML/JSON syntax and scan for encoding damage.
 5. **Restart** CC Switch and confirm it did not rewrite your changes.
 
-Everything runs locally: no telemetry, no network calls, no hidden behavior. All code is open source under MIT.
+### Security analysis
+
+- **Runs fully locally**: reads and writes only files under `~/.cc-switch` (or `CC_SWITCH_HOME`); no network calls, no telemetry, no external services.
+- **Minimal footprint and permissions**: standard-library Python only — zero third-party dependencies, nothing to install; normal operations need no admin rights and never touch system directories.
+- **Safe-by-default writes**: backup → stop CCS → edit → validate → restart → re-check, so a running CCS cannot overwrite your changes from memory.
+- **Encoding-safe**: UTF-8-safe reads and writes prevent Chinese content from being corrupted into `?`; `check` scans for likely mojibake before and after changes.
+- **Read-only first**: `doctor` and `check` never modify anything — inspect the environment before changing it.
+- **No secrets handling**: the helper never reads or uploads credentials; it only manages the local CCS configuration you point it at.
+- **Transparent and auditable**: MIT-licensed, zero third-party dependencies, no hidden behavior — the full source is in this repository.
+
+> Everything runs locally: no telemetry, no network calls, no hidden behavior. All code is open source under MIT.
 
 ## Repository structure
 
