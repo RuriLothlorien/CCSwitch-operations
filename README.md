@@ -26,6 +26,12 @@ This skill turns safe maintenance into one repeatable workflow:
 - **Chinese-safe by design**: UTF-8-safe reads and writes
 - **Inspect before you change**: read-only `doctor` / `check` commands show the current state first
 
+## Compatibility
+
+- Designed and tested with **CC Switch 3.20.0** (database schema v17).
+- Run `python scripts/ccs_db.py doctor` to check your installed version and schema before operating.
+- Other versions may behave differently; see `references/migration.md` for official version behavior changes.
+
 ## Features
 
 - Safe write workflow: backup → stop CCS → edit → validate → restart → re-check.

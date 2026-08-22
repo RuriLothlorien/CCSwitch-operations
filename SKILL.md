@@ -7,6 +7,8 @@ description: "Operate CC Switch (CCS): safely modify and sync its managed config
 
 Methodology for safely operating CC Switch (CCS): backup first, stop the app, edit, validate, restart, and re-check.
 
+> **Version compatibility**: designed and tested with CC Switch **3.20.0** (database schema v17). Run `scripts/ccs_db.py doctor` to verify the installed schema; other versions may behave differently — see `references/migration.md` for official version behavior changes.
+
 ## 1. Safety workflow (mandatory for any write)
 
 1. Backup: config files become `*.bak-<yyyyMMdd>-<slug>`; the database is copied to `<cc-home>/backups/db_backup_<stamp>.db`.

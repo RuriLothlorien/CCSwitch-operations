@@ -24,6 +24,12 @@ CC Switch 的配置分散在数据库、`settings.json` 和多个应用的 live 
 - **中文内容安全**：UTF-8 安全读写，不再担心乱码
 - **先看后改**：`doctor` / `check` 只读检查环境与配置健康度，动手前先看清现状
 
+## 版本兼容
+
+- 本技能基于 **CC Switch 3.20.0**（数据库 schema v17）设计与测试。
+- 操作前可运行 `python scripts/ccs_db.py doctor` 查看本机版本与 schema。
+- 其他版本可能略有差异，详见 `references/migration.md` 的官方版本行为变化。
+
 ## 功能特性
 
 - 安全写入流程：备份 → 停止 CCS → 修改 → 校验 → 重启 → 复核。
