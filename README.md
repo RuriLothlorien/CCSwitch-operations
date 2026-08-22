@@ -20,7 +20,7 @@ CC Switch spreads its configuration across a database, `settings.json`, and each
 This skill turns safe maintenance into one repeatable workflow:
 
 - **No database access required**: `mcp-upsert`, `prompt-set`, `skill-upsert`, `provider-block`, `provider-env`, and `set-flags` cover everyday tasks
-- **Maintain once, consistent across all nine agents**: Codex, Claude Code, Claude Desktop, Gemini, Grok Build, OpenCode, OpenClaw, Hermes, and Pi — no more checking each one individually
+- **Maintain per agent or in bulk, all nine covered**: Codex, Claude Code, Claude Desktop, Gemini, Grok Build, OpenCode, OpenClaw, Hermes, and Pi — update just one agent or several at once, no more checking each one by hand
 - **Backup first, verify after**: backup → stop CCS → edit → validate → restart → re-check
 - **Automatic path discovery, cross-platform**: honors `CC_SWITCH_HOME` / `~/.cc-switch` on Windows, macOS, and Linux
 - **Chinese-safe by design**: UTF-8-safe reads and writes

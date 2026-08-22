@@ -18,7 +18,7 @@ CC Switch 的配置分散在数据库、`settings.json` 和多个应用的 live 
 这个技能把“安全维护”沉淀成一套方法论和工具：
 
 - **不用碰数据库**：`mcp-upsert`、`prompt-set`、`skill-upsert`、`provider-block`、`provider-env`、`set-flags` 覆盖日常操作，全部由工具代劳
-- **一处维护，九个 agent 一致**：Codex、Claude Code、Claude Desktop、Gemini、Grok Build、OpenCode、OpenClaw、Hermes、Pi 的配置边界一次讲清，不用再逐个确认
+- **按需维护，九个 agent 都覆盖**：Codex、Claude Code、Claude Desktop、Gemini、Grok Build、OpenCode、OpenClaw、Hermes、Pi 的配置边界一次讲清；只改某一个 agent 或批量同步都可以，不用再逐个手工确认
 - **先备份、后修改、再校验**：备份 → 停止 CCS → 修改 → 校验 → 重启 → 复核，照着流程走就不会漏
 - **自动发现路径、跨平台**：支持 `CC_SWITCH_HOME` / `~/.cc-switch`，Windows / macOS / Linux 通用
 - **中文内容安全**：UTF-8 安全读写，不再担心乱码
