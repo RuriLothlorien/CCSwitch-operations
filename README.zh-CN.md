@@ -32,6 +32,8 @@
 
 ## 使用
 
+要求 **Python 3.11+**（推荐）。
+
 ```bash
 # 查看环境（路径、schema、各应用供应商）
 python scripts/ccs_db.py doctor

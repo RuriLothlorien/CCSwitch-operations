@@ -154,7 +154,13 @@ codex provider 的 `settings_config.config` 文本：追加与 config.toml 相�
 ## 校验
 
 ```python
-import tomllib, json
+import json
+
+try:
+    import tomllib  # Python 3.11+
+except ModuleNotFoundError:
+    import tomli as tomllib  # Python 3.8-3.10: pip install tomli
+
 tomllib.load(open("config.toml", "rb"))          # TOML
 json.load(open("claude_desktop_config.json", encoding="utf-8-sig"))  # JSON
 ```

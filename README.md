@@ -34,6 +34,8 @@ Use the release zip: in CC Switch, import/install the skill from the zip. The zi
 
 ## Usage
 
+Requires **Python 3.11+** (recommended).
+
 ```bash
 # Discover the environment
 python scripts/ccs_db.py doctor
