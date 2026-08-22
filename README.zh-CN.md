@@ -47,24 +47,6 @@ python scripts/ccs_db.py skill-upsert --name my-skill --description "我的技�
 
 设置 `CC_SWITCH_HOME` 环境变量可覆盖 CC Switch 主目录（默认 `~/.cc-switch`）。
 
-## 构建发布 zip
-
-```bash
-python scripts/build-zip.py --version 1.0.0
-```
-
-输出：`dist/CCSwitch-operations-v1.0.0.zip`。
-
-## 发布 GitHub Release（手动兜底）
-
-```bash
-git tag v1.0.0
-git push origin v1.0.0
-gh release create v1.0.0 dist/CCSwitch-operations-v1.0.0.zip --generate-notes
-```
-
-仓库还附带 GitHub Actions 工作流：推送 `v*` tag 后自动构建 zip 并附加到 draft Release。
-
 ## 文档
 
 - `references/architecture.md` — 架构速查（表结构、生效链路）

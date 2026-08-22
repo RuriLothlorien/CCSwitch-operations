@@ -49,24 +49,6 @@ python scripts/ccs_db.py skill-upsert --name my-skill --description "My skill" -
 
 Set `CC_SWITCH_HOME` to override the CC Switch home directory (default: `~/.cc-switch`).
 
-## Build the release zip
-
-```bash
-python scripts/build-zip.py --version 1.0.0
-```
-
-Output: `dist/CCSwitch-operations-v1.0.0.zip`.
-
-## Publish a GitHub Release (manual fallback)
-
-```bash
-git tag v1.0.0
-git push origin v1.0.0
-gh release create v1.0.0 dist/CCSwitch-operations-v1.0.0.zip --generate-notes
-```
-
-The repository also ships a GitHub Actions workflow that builds the zip and attaches it to a draft release for every `v*` tag.
-
 ## License
 
 MIT — see [LICENSE](LICENSE).
