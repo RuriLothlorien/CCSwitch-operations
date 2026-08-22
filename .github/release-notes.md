@@ -1,51 +1,55 @@
-## 简介
+# v1.1.0 增量更新
 
-CCSwitch-operations 是一个可移植、可发布的 **CC Switch（CCS）** 操作技能：安全地维护全局提示词、Skills、MCP 服务器、供应商与 Codex 模型目录，覆盖 CCS 管理的九个应用。
+## 新增能力（相对 v1.0.0）
 
-- 零第三方 Python 依赖，推荐 Python 3.11+
-- 安全写入流程：备份 → 停止 CCS → 修改 → 校验 → 重启 → 复核
-- 跨平台（Windows / macOS / Linux），文档同时提供 PowerShell 与 bash 示例
-- 内置 UTF-8 安全的数据库辅助脚本（`ccs_db.py`）与 `doctor` / `check` 校验
-- MIT 开源，全本地运行，无遥测、无网络请求
+- 结构安全审计：`check --strict`（空命令/缺失命令的 stdio MCP、url-only MCP 误写、标记配对、表头乱序/越权、live-only 混入）
+- 三处一致性审计：`doctor --audit`（面板 MCP ↔ 供应商配置 ↔ config.toml）、`doctor --compare-backup`
+- 写操作主动预检：配置已损坏时自动拒绝写入（`--force` 可显式跳过）
+- 快照与对比：`snapshot` / `diff`
+- 修复工具：`repair`（表头顺序 / live-only，默认 dry-run，`--apply` 写入并自动备份）
+- 通用配置维护：`common-config get/check/status/set/set-key/remove-key/extract/enable/disable`（幂等审查、提取自动打勾；仅支持 codex/claude/gemini，其余 agent 自动忽略）
+- `provider-block --check-semantics`
+- 已知上游缺陷警示：CCS 3.20.0 编辑页“零改动保存”会破坏 Codex 配置，已在 README/SKILL 中明确并建议使用本技能
 
-## 安装
+## 修复 / 改进
 
-- **Codex**：把 `CCSwitch-operations` 文件夹复制或软链接到 `~/.codex/skills/`
-- **Claude Code**：复制或软链接到 `~/.claude/skills/`
-- **其他 SKILL.md agent**：放入对应 agent 的 skills 目录
-- **CC Switch**：直接导入本 Release 的 zip（顶层为 `CCSwitch-operations/`）
+- 修复 `common-config set-key` 在 snippet 无 preamble 时无法新增顶层 key
+- `check --strict` 增加 stdio MCP 缺失 command 检测
+- `doctor` 默认输出结构健康摘要
+- `repair` 改为最小修复：合法布局零改动
+- 对不支持通用配置的 agent 直接忽略，保证兼容
 
-## 文档
+## 更新安装方法
 
-仓库内 `README.md`（中文默认）/ `README.en.md`（英文）与 `references/` 提供完整说明（架构、九大受管应用矩阵、操作模板、坑位记录、版本行为变化）。
+### Codex
+1. 退出 Codex
+2. 用本 zip 解压出的 `CCSwitch-operations/` **替换** `~/.codex/skills/CCSwitch-operations/`（直接覆盖旧版）
+3. 重新打开 Codex 并新开会话
 
-## 资源
+### Claude Code / 其他 SKILL.md agent
+用 zip 解压出的 `CCSwitch-operations/` 替换对应 agent skills 目录下的同名文件夹。
 
-- 技能包：发布附件中的 `CCSwitch-operations-*.zip`（也可在仓库内手动打包）
+### CC Switch
+在 CC Switch 中从 zip 导入/安装（zip 顶层为 `CCSwitch-operations/`，根目录含 `SKILL.md`），或使用 README 中的 `ccswitch://` 深链加入仓库后安装。
+
+### 升级后建议
+```bash
+python scripts/ccs_db.py snapshot
+python scripts/ccs_db.py check --strict
+python scripts/ccs_db.py doctor --audit
+```
 
 ---
 
-## Overview (English)
+## v1.1.0 Incremental (English)
 
-**CCSwitch-operations** is a portable, publishable skill for operating CC Switch (CCS) safely: global prompts, skills, MCP servers, providers, and the Codex model catalog across the nine apps CCS manages.
+- Structural safety: `check --strict`, `doctor --audit`, proactive write preflight, `snapshot` / `diff`, `repair` (dry-run + `--apply`)
+- Common-config maintenance: `common-config ...` with idempotence checks (codex/claude/gemini only; other agents ignored)
+- `provider-block --check-semantics`
+- Fixes: `set-key` without preamble, stdio missing-command detection, `doctor` health summary, minimal repair
 
-- No third-party Python dependencies; Python 3.11+ recommended
-- Safe write workflow: backup → stop CCS → edit → validate → restart → re-check
-- Cross-platform (Windows / macOS / Linux) with PowerShell and bash examples
-- UTF-8-safe database helper (`ccs_db.py`) with `doctor` / `check` commands
-- MIT licensed; runs fully locally with no telemetry or network calls
+### Update / Install
 
-### Install
-
-- **Codex**: copy or symlink the `CCSwitch-operations` folder to `~/.codex/skills/`
-- **Claude Code**: copy or symlink it to `~/.claude/skills/`
-- **Other SKILL.md agents**: place it in the agent's skills directory
-- **CC Switch**: import the zip from this release (top-level folder `CCSwitch-operations/`)
-
-### Docs
-
-See `README.md` (Chinese, default) / `README.en.md` (English) and `references/` in the repository for full documentation.
-
-### Assets
-
-- Skill package: `CCSwitch-operations-*.zip` from this release (or build it manually in the repo)
+1. Quit Codex.
+2. Replace the `CCSwitch-operations/` folder in your agent's skills directory with the one from this zip (e.g. `~/.codex/skills/CCSwitch-operations/`).
+3. Restart the agent, then run `check --strict` and `doctor --audit`.
