@@ -191,6 +191,8 @@ python scripts/ccs_db.py provider-block --app-type codex \
   --section "[mcp_servers.foo]" --block-file block.toml --replace --check-semantics
 ```
 
+`check --strict` 也会检测**顶层键被挪进表内**（如 `notify = [...]` 出现在某个 `[table]` 之后/内部）；`repair --mode header-order` 会自动把这类顶层键移回 preamble（所有 `[table]` 之前）。
+
 ## 通用配置维护（v1.1.0+）
 
 ```bash

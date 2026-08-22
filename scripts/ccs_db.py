@@ -590,6 +590,13 @@ LIVE_ONLY_HEADERS = (
     "[sandbox_workspace_write", "[hooks.state",
 )
 
+TOP_LEVEL_ONLY_KEYS = (
+    "model", "model_provider", "model_catalog_json", "model_reasoning_effort",
+    "disable_response_storage", "sandbox_mode", "personality",
+    "windows_wsl_setup_acknowledged", "web_search", "model_reasoning_summary",
+    "notify", "model_instructions_file",
+)
+
 MARKER_TAGS = ("instructions", "hooks", "mcp")
 
 
@@ -686,6 +693,24 @@ def mcp_semantic_issues(text):
     return issues
 
 
+def top_level_key_issues(text):
+    issues = []
+    for header, path, i, body in parse_sections(text):
+        if path is None:
+            continue
+        for offset, line in enumerate(body):
+            s = line.strip()
+            if not s or s.startswith("#") or "=" not in s:
+                continue
+            key = s.partition("=")[0].strip()
+            if key in TOP_LEVEL_ONLY_KEYS:
+                issues.append(
+                    f"{key} (line {i + 1 + offset}) misplaced inside {header}: "
+                    "top-level key must stay in the preamble before any [table]"
+                )
+    return issues
+
+
 def header_order_issues(text):
     issues = []
     sections = parse_sections(text)
@@ -733,6 +758,7 @@ def find_header_issues(text, is_provider_config=False):
     issues = []
     issues += marker_issues(text)
     issues += mcp_semantic_issues(text)
+    issues += top_level_key_issues(text)
     issues += header_order_issues(text)
     if is_provider_config:
         issues += live_only_issues(text)
@@ -800,6 +826,33 @@ def repair_header_order(text):
             rest.insert(ref_idx, sec)
         moved.append(sec[0])
         text = _join_sections(rest)
+
+    # Also move misplaced top-level keys (e.g. `notify =`) out of table bodies
+    # back into the preamble (before any [table] header).
+    sections = parse_sections(text)
+    preamble = next((s for s in sections if s[0] is None), None)
+    if preamble is None:
+        preamble = [None, None, 0, []]
+        sections.insert(0, preamble)
+    key_moved = []
+    for s in sections:
+        if s[0] is None:
+            continue
+        keep = []
+        for line in s[3]:
+            stripped = line.strip()
+            if stripped and not stripped.startswith("#") and "=" in stripped:
+                k = stripped.partition("=")[0].strip()
+                if k in TOP_LEVEL_ONLY_KEYS:
+                    preamble[3].append(line)
+                    key_moved.append(k)
+                    continue
+            keep.append(line)
+        s[3] = keep
+    if key_moved:
+        text = _join_sections(sections)
+        moved.extend(key_moved)
+
     if not moved:
         return original, []
     return text, moved
