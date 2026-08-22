@@ -83,7 +83,8 @@ CCSwitch-operations/
 │  ├─ operations.md            # 操作模板（PowerShell + bash）
 │  ├─ pitfalls.md              # 已踩过的坑
 │  ├─ migration.md             # 官方版本行为变化
-│  └─ examples/                # 示例 TOML/JSON/提示词
+│  ├─ examples/                # 示例 TOML/JSON/提示词
+│  └─ incidents/               # 事故复盘（仅仓库内）
 ├─ scripts/
 │  ├─ ccs_db.py                # 零依赖数据库辅助脚本（唯一运行时脚本）
 │  └─ build-zip.py             # 手动打包 zip 的辅助脚本（仅仓库内）

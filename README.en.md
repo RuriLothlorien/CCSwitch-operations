@@ -83,7 +83,8 @@ CCSwitch-operations/
 │  ├─ operations.md            # Command templates (PowerShell + bash)
 │  ├─ pitfalls.md              # Known pitfalls
 │  ├─ migration.md             # Official CCS version behavior changes
-│  └─ examples/                # Sample TOML/JSON/prompt files
+│  ├─ examples/                # Sample TOML/JSON/prompt files
+│  └─ incidents/               # Incident retrospectives (repo only)
 ├─ scripts/
 │  ├─ ccs_db.py                # Dependency-free DB helper (the only runtime script)
 │  └─ build-zip.py             # Manual zip packaging helper (repo only)

@@ -21,3 +21,4 @@
 | Pi 同名 skill 无法覆盖/删除 | CCS 只管理它自己拥有的 skill | 先确认归属，再手动处理 `~/.pi/agent/skills` |
 | 控制台显示 `��`/乱码 | 控制台按非 UTF-8 解码 Python 输出 | 用 `ascii()` / `repr()` 核对；DB 内文本通常完好 |
 | 官方 MCP 不在 `mcp_servers` 表 | 官方/内置服务器不归用户管理 | 属正常，不要补录；三处一致只针对用户自建 MCP |
+| CCS 3.20.0 编辑页零改动保存即破坏 Codex 配置 | 前端 smol-toml 重排 + 后端剥离/合并通用配置，空命令 stdio MCP 落盘 | 不要用编辑页保存/提取；用本技能 `check --strict` / `doctor --audit` / `repair` / `common-config` 维护；详见 references/incidents/2026-08-23-codex-config-mangle.md |
