@@ -45,8 +45,6 @@ CCSwitch-operations/
 ├─ scripts/
 │  ├─ ccs_db.py                # 零依赖数据库辅助脚本（唯一运行时脚本）
 │  └─ build-zip.py             # 手动打包 zip 的辅助脚本（仅仓库内）
-├─ tests/
-│  └─ test_ccs_db.py           # 冒烟与回归测试（仅仓库内）
 └─ .github/workflows/release.yml  # Release 构建工作流（仅仓库内）
 ```
 
@@ -107,12 +105,6 @@ python scripts/build-zip.py --version 1.0.0
 - `references/pitfalls.md` — 已踩过的坑
 - `references/migration.md` — 官方版本行为变化
 - `references/examples/` — 示例 TOML/JSON/提示词文件
-
-## 测试
-
-```bash
-python -m unittest discover -s tests -v
-```
 
 ## License
 

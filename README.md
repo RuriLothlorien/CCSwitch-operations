@@ -47,8 +47,6 @@ CCSwitch-operations/
 ├─ scripts/
 │  ├─ ccs_db.py                # Dependency-free DB helper (the only runtime script)
 │  └─ build-zip.py             # Manual zip packaging helper (repo only)
-├─ tests/
-│  └─ test_ccs_db.py           # Smoke and regression tests (repo only)
 └─ .github/workflows/release.yml  # Release build workflow (repo only)
 ```
 
