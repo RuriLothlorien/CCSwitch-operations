@@ -316,10 +316,10 @@ class PackageTest(unittest.TestCase):
         readme_zh = (REPO / "README.zh-CN.md").read_text(encoding="utf-8")
         for text in (readme_en, readme_zh):
             self.assertNotIn("gh release", text)
-            self.assertNotIn("build-zip", text)
             self.assertNotIn("GitHub Actions", text)
             self.assertNotIn("git tag", text)
-        self.assertNotIn("构建发布", readme_zh)
+        self.assertIn("build-zip", readme_en)
+        self.assertIn("build-zip", readme_zh)
         self.assertNotIn("发布 GitHub Release", readme_zh)
 
 

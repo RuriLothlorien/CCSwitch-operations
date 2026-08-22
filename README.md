@@ -49,6 +49,16 @@ python scripts/ccs_db.py skill-upsert --name my-skill --description "My skill" -
 
 Set `CC_SWITCH_HOME` to override the CC Switch home directory (default: `~/.cc-switch`).
 
+## Build the zip
+
+To package the skill into a distributable zip (for example to install it in CC Switch or share it manually):
+
+```bash
+python scripts/build-zip.py --version 1.0.0
+```
+
+Output: `dist/CCSwitch-operations-v1.0.0.zip`.
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
