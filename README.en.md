@@ -13,6 +13,10 @@ The package is self-contained: no installer script, no external helper dependenc
 
 If this skill helps you, please give it a ⭐.
 
+> [!WARNING]
+> **Known CC Switch 3.20.0 manual-edit bug**: saving the Codex provider page in CC Switch — even without changing anything — can reorder `~/.codex/config.toml`, strip common-config blocks, misplace markers, and even serialize a url-only remote MCP as `type="stdio"` + `command=""`; the "extract common config" flow is affected too (upstream issue [#6719](https://github.com/farion1231/cc-switch/issues/6719)).
+> **Recommendation**: do not use the CC Switch edit page to maintain Codex provider/common config. Use this skill's commands instead (`check --strict`, `doctor --audit`, `repair`, `common-config`, `provider-block`, ...).
+
 ## Why this skill?
 
 CC Switch spreads its configuration across a database, `settings.json`, and each app's live config files. Maintaining it by hand means remembering a dozen locations, then checking **every agent one by one** — Codex, Claude Code, Claude Desktop, Gemini, and the rest — to see whether a change actually took effect. Miss one spot and the next provider switch overwrites your work, or a tool silently stops working. Worse, **AI agents maintaining their own configuration rarely know about your CC Switch installation** — their edits to `config.toml` / `settings.json` can conflict with what CCS manages and get overwritten on the next switch. You should not have to spend time and effort manually keeping CCS and your agents consistent.
