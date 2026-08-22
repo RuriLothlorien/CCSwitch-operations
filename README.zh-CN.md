@@ -11,6 +11,19 @@
 
 如果这个技能对你有帮助，欢迎点个 Star ⭐。
 
+## 为什么需要这个技能？
+
+CC Switch 的配置分散在数据库、`settings.json` 和多个应用的 live 配置文件里。手动维护的痛点是：位置多、容易忘，改完还要去 Codex、Claude Code、Claude Desktop、Gemini 等每个 agent 里**逐个确认**是否生效，稍不留神漏一处，下次切换供应商时配置就被覆盖、工具就失效。更麻烦的是，**AI 在自我维护时往往只顾自己的 agent 配置，不会顾及你本机安装的 CC Switch**——它自己写的 `config.toml` / `settings.json` 可能和 CCS 的管理状态冲突，下一次切换就被回写覆盖。用户不应该、也不需要直接去操作数据库。
+
+这个技能把“安全维护”沉淀成一套方法论和工具：
+
+- **不用碰数据库**：`mcp-upsert`、`prompt-set`、`skill-upsert`、`provider-block`、`provider-env`、`set-flags` 覆盖日常操作，全部由工具代劳
+- **一处维护，九个 agent 一致**：Codex、Claude Code、Claude Desktop、Gemini、Grok Build、OpenCode、OpenClaw、Hermes、Pi 的配置边界一次讲清，不用再逐个确认
+- **先备份、后修改、再校验**：备份 → 停止 CCS → 修改 → 校验 → 重启 → 复核，照着流程走就不会漏
+- **自动发现路径、跨平台**：支持 `CC_SWITCH_HOME` / `~/.cc-switch`，Windows / macOS / Linux 通用
+- **中文内容安全**：UTF-8 安全读写，不再担心乱码
+- **先看后改**：`doctor` / `check` 只读检查环境与配置健康度，动手前先看清现状
+
 ## 功能特性
 
 - 安全写入流程：备份 → 停止 CCS → 修改 → 校验 → 重启 → 复核。
