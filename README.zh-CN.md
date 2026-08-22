@@ -26,6 +26,32 @@ CC Switch 的托管配置存放在 SQLite 数据库（`~/.cc-switch/cc-switch.db
 
 一切都在本地完成：无遥测、无网络请求、无隐藏行为；全部代码 MIT 开源。
 
+## 仓库结构
+
+```text
+CCSwitch-operations/
+├─ SKILL.md                    # 技能入口（frontmatter + 方法论）
+├─ README.md                   # 英文说明
+├─ README.zh-CN.md             # 中文说明
+├─ LICENSE                     # MIT 许可证
+├─ agents/openai.yaml          # OpenAI/Codex 的 UI 元数据
+├─ references/
+│  ├─ architecture.md          # 架构速查
+│  ├─ apps.md                  # 九大受管应用矩阵
+│  ├─ operations.md            # 操作模板（PowerShell + bash）
+│  ├─ pitfalls.md              # 已踩过的坑
+│  ├─ migration.md             # 官方版本行为变化
+│  └─ examples/                # 示例 TOML/JSON/提示词
+├─ scripts/
+│  ├─ ccs_db.py                # 零依赖数据库辅助脚本（唯一运行时脚本）
+│  └─ build-zip.py             # 手动打包 zip 的辅助脚本（仅仓库内）
+├─ tests/
+│  └─ test_ccs_db.py           # 冒烟与回归测试（仅仓库内）
+└─ .github/workflows/release.yml  # Release 构建工作流（仅仓库内）
+```
+
+发布 zip 只包含技能运行所需内容：`SKILL.md`、`agents/`、`references/`、`scripts/ccs_db.py`、README 与 `LICENSE`。
+
 ## 安装
 
 ### Codex

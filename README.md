@@ -28,6 +28,32 @@ Every write follows a safe, verifiable flow:
 
 Everything runs locally: no telemetry, no network calls, no hidden behavior. All code is open source under MIT.
 
+## Repository structure
+
+```text
+CCSwitch-operations/
+├─ SKILL.md                    # Skill entrypoint (frontmatter + methodology)
+├─ README.md                   # English readme
+├─ README.zh-CN.md             # Chinese readme
+├─ LICENSE                     # MIT license
+├─ agents/openai.yaml          # UI metadata for OpenAI/Codex
+├─ references/
+│  ├─ architecture.md          # Architecture quick reference
+│  ├─ apps.md                  # The 9 managed apps matrix
+│  ├─ operations.md            # Command templates (PowerShell + bash)
+│  ├─ pitfalls.md              # Known pitfalls
+│  ├─ migration.md             # Official CCS version behavior changes
+│  └─ examples/                # Sample TOML/JSON/prompt files
+├─ scripts/
+│  ├─ ccs_db.py                # Dependency-free DB helper (the only runtime script)
+│  └─ build-zip.py             # Manual zip packaging helper (repo only)
+├─ tests/
+│  └─ test_ccs_db.py           # Smoke and regression tests (repo only)
+└─ .github/workflows/release.yml  # Release build workflow (repo only)
+```
+
+The release zip contains only what the skill needs at runtime: `SKILL.md`, `agents/`, `references/`, `scripts/ccs_db.py`, the READMEs, and `LICENSE`.
+
 ## Install
 
 ### Codex

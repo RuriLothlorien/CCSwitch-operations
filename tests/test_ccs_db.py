@@ -324,6 +324,8 @@ class PackageTest(unittest.TestCase):
         self.assertIn("3.11", readme_zh)
         self.assertIn("How it works", readme_en)
         self.assertIn("工作原理", readme_zh)
+        self.assertIn("Repository structure", readme_en)
+        self.assertIn("仓库结构", readme_zh)
         self.assertNotIn("发布 GitHub Release", readme_zh)
 
 
