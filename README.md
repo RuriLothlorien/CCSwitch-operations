@@ -63,6 +63,7 @@ CCSwitch-operations/
 ├─ README.zh-CN.md             # Chinese readme
 ├─ LICENSE                     # MIT license
 ├─ agents/openai.yaml          # UI metadata for OpenAI/Codex
+├─ assets/ccswitch-operations-banner.png  # Social preview banner (repo only)
 ├─ references/
 │  ├─ architecture.md          # Architecture quick reference
 │  ├─ apps.md                  # The 9 managed apps matrix
@@ -96,10 +97,10 @@ Place the `CCSwitch-operations` folder into the agent's skills directory (for ex
 
 Use the release zip: in CC Switch, import/install the skill from the zip. The zip contains a top-level `CCSwitch-operations/` folder with `SKILL.md` at its root.
 
-Or import it directly with the deep link (change `app=` to the target agent, e.g. `claude` / `gemini`):
+Or add it to CC Switch's skill repository list with the deep link (click it with CC Switch installed; then open CC Switch -> Skills -> Browse GitHub repos to install the skill to the apps you want):
 
 ```text
-ccswitch://v1/import?resource=skill&app=codex&name=CCSwitch-operations&repo=RuriLothlorien/CCSwitch-operations&branch=main
+ccswitch://v1/import?resource=skill&repo=RuriLothlorien/CCSwitch-operations&branch=main
 ```
 
 ## Usage

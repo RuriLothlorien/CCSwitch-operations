@@ -61,6 +61,7 @@ CCSwitch-operations/
 ├─ README.zh-CN.md             # 中文说明
 ├─ LICENSE                     # MIT 许可证
 ├─ agents/openai.yaml          # OpenAI/Codex 的 UI 元数据
+├─ assets/ccswitch-operations-banner.png  # 社交预览图（仅仓库内）
 ├─ references/
 │  ├─ architecture.md          # 架构速查
 │  ├─ apps.md                  # 九大受管应用矩阵
@@ -94,10 +95,10 @@ CCSwitch-operations/
 
 使用 Release zip：在 CC Switch 中从 zip 导入/安装技能。zip 顶层为 `CCSwitch-operations/`，其根目录含 `SKILL.md`。
 
-或使用一键导入深链（把 `app=` 换成目标 agent，例如 `claude` / `gemini`）：
+或用深链把它加入 CC Switch 的 Skill 仓库列表（已安装 CC Switch 时点击即可；之后在 CC Switch -> Skills -> Browse GitHub repos 中安装到你想用的应用）：
 
 ```text
-ccswitch://v1/import?resource=skill&app=codex&name=CCSwitch-operations&repo=RuriLothlorien/CCSwitch-operations&branch=main
+ccswitch://v1/import?resource=skill&repo=RuriLothlorien/CCSwitch-operations&branch=main
 ```
 
 ## 使用
