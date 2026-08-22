@@ -12,6 +12,20 @@
 - 跨平台：自动发现 `CC_SWITCH_HOME` / `~/.cc-switch`，文档同时给出 PowerShell 与 bash 示例。
 - `doctor` 子命令输出解析到的路径、数据库 schema 版本与各应用供应商状态。
 
+## 工作原理
+
+CC Switch 的托管配置存放在 SQLite 数据库（`~/.cc-switch/cc-switch.db`）、`settings.json` 以及各应用的 live 配置文件中。本技能不做猜测：通过一个零依赖的 Python 辅助脚本（`scripts/ccs_db.py`）直接读写这些文件。
+
+每次写入都遵循安全、可验证的流程：
+
+1. **先备份**数据库与配置文件。
+2. **停止** CC Switch，避免其内存状态覆盖你的修改。
+3. **通过 `ccs_db.py` 修改**（UTF-8 安全，中文内容不会被损坏）。
+4. **校验** TOML/JSON 语法并扫描编码损坏。
+5. **重启** CC Switch，并确认它没有回写覆盖你的更改。
+
+一切都在本地完成：无遥测、无网络请求、无隐藏行为；全部代码 MIT 开源。
+
 ## 安装
 
 ### Codex

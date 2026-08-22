@@ -14,6 +14,20 @@ The package is self-contained: no installer script, no external helper dependenc
 - Cross-platform: `CC_SWITCH_HOME` / `~/.cc-switch` discovery, PowerShell and bash examples.
 - `doctor` subcommand prints resolved paths, schema version, and per-app provider availability.
 
+## How it works
+
+CC Switch stores its managed configuration in an SQLite database (`~/.cc-switch/cc-switch.db`), `settings.json`, and the per-app live config files. This skill does not guess: it reads and writes those files directly with a small, dependency-free Python helper (`scripts/ccs_db.py`).
+
+Every write follows a safe, verifiable flow:
+
+1. **Backup** the database and config files first.
+2. **Stop** CC Switch so its in-memory state cannot overwrite your edit.
+3. **Edit** through `ccs_db.py` (UTF-8-safe, so Chinese content is never corrupted).
+4. **Validate** TOML/JSON syntax and scan for encoding damage.
+5. **Restart** CC Switch and confirm it did not rewrite your changes.
+
+Everything runs locally: no telemetry, no network calls, no hidden behavior. All code is open source under MIT.
+
 ## Install
 
 ### Codex
