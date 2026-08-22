@@ -22,3 +22,30 @@ CCSwitch-operations 是一个可移植、可发布的 **CC Switch（CCS）** 操
 ## 资源
 
 - 技能包：发布附件中的 `CCSwitch-operations-*.zip`（也可在仓库内手动打包）
+
+---
+
+## Overview (English)
+
+**CCSwitch-operations** is a portable, publishable skill for operating CC Switch (CCS) safely: global prompts, skills, MCP servers, providers, and the Codex model catalog across the nine apps CCS manages.
+
+- No third-party Python dependencies; Python 3.11+ recommended
+- Safe write workflow: backup → stop CCS → edit → validate → restart → re-check
+- Cross-platform (Windows / macOS / Linux) with PowerShell and bash examples
+- UTF-8-safe database helper (`ccs_db.py`) with `doctor` / `check` commands
+- MIT licensed; runs fully locally with no telemetry or network calls
+
+### Install
+
+- **Codex**: copy or symlink the `CCSwitch-operations` folder to `~/.codex/skills/`
+- **Claude Code**: copy or symlink it to `~/.claude/skills/`
+- **Other SKILL.md agents**: place it in the agent's skills directory
+- **CC Switch**: import the zip from this release (top-level folder `CCSwitch-operations/`)
+
+### Docs
+
+See `README.md` / `README.zh-CN.md` and `references/` in the repository for full documentation.
+
+### Assets
+
+- Skill package: `CCSwitch-operations-*.zip` from this release (or build it manually in the repo)
