@@ -74,6 +74,10 @@ APP_TYPES = (
     "pi",
 )
 
+# Only these app types have a common-config snippet and the per-provider
+# "use common config" checkbox. Other agents are ignored for compatibility.
+COMMON_CONFIG_APP_TYPES = ("codex", "claude", "gemini")
+
 
 def default_cc_home() -> Path:
     env = os.environ.get("CC_SWITCH_HOME")
@@ -1268,6 +1272,9 @@ def cmd_common_config(args):
     cc_home, db_path = resolve_paths(args)
     app_type = args.app_type
     sub = args.cc_cmd
+    if app_type not in COMMON_CONFIG_APP_TYPES:
+        print(f"[SKIP] app_type '{app_type}' does not use common config; ignored")
+        return
     if sub in ("set", "set-key", "remove-key", "extract"):
         run_preflight(args, cc_home, db_path)
     con = connect(db_path)
@@ -1335,7 +1342,9 @@ def cmd_common_config(args):
             _maybe_sync_and_enable(args, con, cc_home, app_type)
         elif sub == "status":
             for r in con.execute(
-                "SELECT id, app_type, name, is_current, meta FROM providers ORDER BY app_type, name"
+                "SELECT id, app_type, name, is_current, meta FROM providers "
+                "WHERE app_type=? ORDER BY name",
+                (app_type,),
             ):
                 try:
                     meta = json.loads(r["meta"]) if r["meta"] else {}
