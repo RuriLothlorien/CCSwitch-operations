@@ -22,7 +22,7 @@ EXCLUDE_FILES = {".gitignore", "build-zip.py"}
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Build the CCSwitch-operations skill zip")
-    parser.add_argument("--version", default="1.1.1", help="version used in the zip filename")
+    parser.add_argument("--version", default="1.1.2", help="version used in the zip filename")
     parser.add_argument("--repo", type=Path, default=Path(__file__).resolve().parent.parent)
     parser.add_argument("--out-dir", type=Path, default=None, help="defaults to <repo>/dist")
     args = parser.parse_args()

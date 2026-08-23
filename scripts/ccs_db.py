@@ -375,6 +375,42 @@ def cmd_provider_env(args):
     con.close()
 
 
+def cmd_provider_set_key(args):
+    cc_home, db_path = resolve_paths(args)
+    run_preflight(args, cc_home, db_path)
+    con = connect(db_path)
+    cur = con.cursor()
+    provider_id = resolve_provider_id(cur, cc_home, args.app_type, args.provider_id)
+    row = cur.execute(
+        "SELECT settings_config FROM providers WHERE id=?", (provider_id,)
+    ).fetchone()
+    if not row:
+        raise SystemExit(f"provider not found: {provider_id}")
+    obj = json.loads(row["settings_config"])
+    if "config" not in obj or not isinstance(obj.get("config"), str):
+        raise SystemExit(
+            f"provider {provider_id} has no 'config' TOML text; use 'provider-env' for env-only providers"
+        )
+    cfg = obj.get("config", "")
+    new_cfg = edit_snippet_key("codex", cfg, args.key, args.value or "", args.remove)
+    tomllib.loads(new_cfg)
+    obj["config"] = new_cfg
+    cur.execute(
+        "UPDATE providers SET settings_config=? WHERE id=?",
+        (json.dumps(obj, ensure_ascii=False), provider_id),
+    )
+    con.commit()
+    line = next(
+        (l.strip() for l in new_cfg.splitlines() if l.strip().startswith(args.key + " =")),
+        None,
+    )
+    if args.remove:
+        print(f"[REMOVED] provider {provider_id} key '{args.key}'")
+    else:
+        print(f"[SET] provider {provider_id} key '{args.key}' -> {line}")
+    con.close()
+
+
 def cmd_set_flags(args):
     colmap = {
         "codex": "enabled_codex",
@@ -1517,6 +1553,14 @@ def build_parser():
     e.add_argument("--set", action="append", metavar="KEY=VALUE", help="set env var (repeatable)")
     e.add_argument("--remove", action="append", metavar="KEY", help="remove env var (repeatable)")
     e.set_defaults(func=cmd_provider_env)
+
+    pk = sub.add_parser("provider-set-key", help="set/remove a top-level or dotted key in a provider's config TOML")
+    pk.add_argument("--provider-id")
+    pk.add_argument("--app-type", choices=APP_TYPES, default="codex")
+    pk.add_argument("--key", required=True, help="key path, e.g. model_reasoning_summary or desktop.localeOverride")
+    pk.add_argument("--value", default="", help="TOML literal value, e.g. \"none\" or true")
+    pk.add_argument("--remove", action="store_true", help="remove the key instead of setting it")
+    pk.set_defaults(func=cmd_provider_set_key)
 
     f = sub.add_parser("set-flags", description="Toggle enabled_* flags for an existing mcp_servers/skills row without touching other fields")
     f.add_argument("--table", required=True, choices=("mcp_servers", "skills"))

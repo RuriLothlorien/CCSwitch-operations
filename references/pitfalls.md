@@ -24,4 +24,5 @@
 | CCS 3.20.0 编辑页零改动保存即破坏 Codex 配置 | 前端 smol-toml 重排 + 后端剥离/合并通用配置，空命令 stdio MCP 落盘；现象含 `notify = [...]` 错位、`[plugins]`/`[marketplaces]` 被剥离、`[mcp_servers]` 与 `[mcp_servers.node_repl(.env)]` 块/键被改写或重排 | 不要用编辑页保存/提取；用本技能 `check --strict` / `doctor --audit` / `repair` / `common-config` 维护；保存后与 `config.toml.bak` 或 `snapshot`/`diff` 做字节级对比；详见 references/incidents/2026-08-23-codex-config-mangle.md |
 | AI 手写临时脚本直改 DB，provider 与 snippet 持有重复键 | 绕过技能命令、没有幂等/剥离逻辑 | 用 `common-config set-key/set --apply --sync-and-enable` 规范化：snippet 持有、provider 剥离、显式打勾；禁止临时脚本直改 DB |
 | 用户只说“同步 CCS”，AI 擅自只改 common-config | 范围推断错误，把“CCS”脑补成“通用配置” | “同步”默认降级为 provider 配置；改完后询问是否提取到通用配置模板（`common-config extract`）；只有用户明确提到“通用配置/common-config/模板”才直接碰 snippet |
+| 用户说“同步”，AI 未确认对象直接按配置同步执行（实为同步 skill） | 对象推断错误 | 先确认同步对象（配置 / 技能 / 模板）再行动；配置同步才走 provider-first + 提取询问 |
 | AI 不确定时自由发挥 / 自己猜 | 没有先读本技能就直接行动 | 不确定时先读 SKILL.md 与 references/；确属技能范围之外时明确告知用户并提供建议行动 |

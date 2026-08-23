@@ -106,6 +106,16 @@ python $S provider-env --app-type claude `
   --set ANTHROPIC_BASE_URL=https://api.example.com/anthropic --remove ENABLE_TOOL_SEARCH
 ```
 
+### 供应商顶层/段内键（provider-set-key）
+
+```bash
+python scripts/ccs_db.py provider-set-key --app-type codex --key model_reasoning_summary --value '"none"'
+python scripts/ccs_db.py provider-set-key --app-type codex --key mcp_servers.foo.startup_timeout_sec --value 30
+python scripts/ccs_db.py provider-set-key --app-type codex --key web_search --remove
+```
+
+`--value` 是 TOML 字面量（字符串需带引号，PowerShell 下用单引号包裹整个参数）。该命令会自动跑 preflight 并校验 TOML。
+
 ### 只切启用标志
 
 ```powershell
@@ -233,6 +243,6 @@ python scripts/ccs_db.py common-config set --app-type codex --content-file snipp
 
 ### 范围确认（重要）
 
-“同步 / 同步到 CCS”默认先操作 **provider 配置**（provider-first）；**改完后询问用户是否需要提取到通用配置模板**（用 `common-config extract` 自动提取并打勾）。只有用户明确提到“通用配置 / common-config / 模板”时才直接操作 snippet；未明确时**不要擅自只改 common-config**。
+“同步”是有歧义的表述：**先确认对象（配置 / 技能 / 模板）再行动**，不要把“同步 skill”当成配置同步。若确认为配置同步且范围未明确：默认先操作 **provider 配置**（provider-first），改完后询问是否提取到通用配置模板（`common-config extract`）。只有用户明确提到“通用配置 / common-config / 模板”时才直接操作 snippet；未明确时不要擅自只改 common-config。
 
 任何不确定处，先认真阅读本技能（SKILL.md 与 references/）再行动，**不要自由发挥**；若请求确实超出本技能范围，明确告知用户并给出建议行动。

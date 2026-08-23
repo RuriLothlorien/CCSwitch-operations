@@ -1,9 +1,11 @@
-# v1.1.1 增量更新
+# v1.1.2 增量更新
 
-## 新增能力（相对 v1.1.0）
+## 新增能力（相对 v1.1.1）
 
-- 顶层键顺序异常检测与修复：`check --strict` 检测 `notify = [...]` 等顶层键被挪进 `[table]` 内部；`repair --mode header-order --apply` 自动移回 preamble（所有 `[table]` 之前）
-- 文档补充：README / SKILL / pitfalls 增加“CCS 3.20.0 可能误操作配置”的痛点，以及 `[plugins]` / `[marketplaces]` / `[mcp_servers.node_repl(.env)]` / `notify =` 等具体表头/键级现象与对策
+- 新增 `provider-set-key`：安全设置/删除 provider 配置的顶层或段内键（TOML 字面量），自动 preflight 与 TOML 校验，替代手写临时脚本直改 DB
+- 铁律更新：不确定时先认真读本技能（SKILL.md 与 references/），不得自由发挥；“同步”必须先确认对象（配置 / 技能 / 模板）再行动
+- 配置同步语义：未明确范围时默认 provider-first（`provider-set-key`），改完后询问是否提取到通用配置模板（`common-config extract`）；只有用户明示“通用配置 / common-config / 模板”才直接操作 snippet
+- 文档同步：operations / SKILL / pitfalls 补充上述规则与命令
 
 ## 更新安装方法
 
@@ -27,10 +29,11 @@ python scripts/ccs_db.py doctor --audit
 
 ---
 
-## v1.1.1 Incremental (English)
+## v1.1.2 Incremental (English)
 
-- New: `check --strict` detects top-level keys (e.g. `notify = [...]`) misplaced inside `[table]` blocks; `repair --mode header-order --apply` moves them back to the preamble
-- Docs: README / SKILL / pitfalls now cover the "CCS 3.20.0 may misoperate your config" pain point and concrete symptoms (`[plugins]`, `[marketplaces]`, `[mcp_servers.node_repl(.env)]`, `notify =`)
+- New `provider-set-key`: safely set/remove top-level or dotted keys in a provider's config TOML (with preflight + TOML validation)
+- Iron rules: read the skill first when unsure; "sync" requires confirming the object (config / skill / template) before acting
+- Config sync semantics: provider-first by default (`provider-set-key`), then ask whether to `common-config extract`; only touch the snippet when the user explicitly mentions "common config" / "模板"
 
 ### Update / Install
 
