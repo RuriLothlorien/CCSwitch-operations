@@ -67,6 +67,7 @@ Methodology for safely operating CC Switch (CCS): backup first, stop the app, ed
 - **Known upstream defect**: CC Switch 3.20.0's provider edit page — even when saved without any changes — can reorder `config.toml`, strip common-config blocks, misplace markers, and serialize a url-only remote MCP as `type="stdio"` + `command=""` (frontend smol-toml round-trip plus backend toml_edit strip/merge). **Do not use the edit page to save or extract Codex provider config**; use this skill's commands instead.
   - Common symptoms: top-level `notify = [...]` displaced, `[plugins]` / `[marketplaces]` blocks stripped, `[mcp_servers]` / `[mcp_servers.node_repl(.env)]` blocks or keys rewritten or reordered.
 - **Common-config maintenance**: `common-config` only modifies the snippet when explicitly invoked; `enable` requires an idempotence check (stripping the snippet and re-merging must stay semantically equivalent); `extract` auto-enables after success; `set*` asks whether to sync the current config and enable (non-interactive defaults to no sync unless `--sync-and-enable`).
+- **Canonical "update both provider and common config" flow**: use `common-config set-key|set --apply --sync-and-enable` — it updates the snippet, strips duplicate snippet keys from the current provider config, and enables the flag in one step. Never hand-write temporary scripts to edit the CCS DB directly; DB writes go through `ccs_db.py`. Canonical state: the snippet owns the keys, the provider config does not duplicate them.
 
 ## References
 

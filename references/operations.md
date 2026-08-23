@@ -215,3 +215,18 @@ python scripts/ccs_db.py common-config disable --app-type codex --provider-id <i
 ```
 
 交互说明：`set*` 写完后在 TTY 下询问“是否同步当前配置并打勾”；非交互默认不同步，可用 `--sync-and-enable` 显式要求（同样先过幂等审查）。
+
+### 两边一起改（canonical workflow）
+
+当需要“配置和通用配置都要更新”时，唯一推荐姿势：
+
+```bash
+# 单键
+python scripts/ccs_db.py common-config set-key --app-type codex --key <key> --value '<value>' --apply --sync-and-enable
+# 整体
+python scripts/ccs_db.py common-config set --app-type codex --content-file snippet.toml --apply --sync-and-enable
+```
+
+它会：① 写 snippet；② 从当前 provider config 剥离与 snippet 重复的键；③ 显式打勾（`commonConfigEnabled=true`）；④ 自动校验。
+
+**禁止**手写临时脚本直接 `UPDATE providers` / 直改 `cc-switch.db`；DB 写入一律走 `ccs_db.py` 子命令。规范终态：snippet 持有这些键，provider config 不重复持有。
