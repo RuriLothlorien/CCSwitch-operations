@@ -233,4 +233,4 @@ python scripts/ccs_db.py common-config set --app-type codex --content-file snipp
 
 ### 范围确认（重要）
 
-“同步到 CCS / 更新 CCS 配置”本身有歧义。**只有用户明确提到“通用配置 / common-config”时才操作 snippet**；未明确时先确认范围（provider 配置 / 通用配置 / 两边一起），**不要擅自只改 common-config**。
+“同步 / 同步到 CCS”默认先操作 **provider 配置**（provider-first）；**改完后询问用户是否需要提取到通用配置模板**（用 `common-config extract` 自动提取并打勾）。只有用户明确提到“通用配置 / common-config / 模板”时才直接操作 snippet；未明确时**不要擅自只改 common-config**。
