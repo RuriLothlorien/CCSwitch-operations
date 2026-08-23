@@ -230,3 +230,7 @@ python scripts/ccs_db.py common-config set --app-type codex --content-file snipp
 它会：① 写 snippet；② 从当前 provider config 剥离与 snippet 重复的键；③ 显式打勾（`commonConfigEnabled=true`）；④ 自动校验。
 
 **禁止**手写临时脚本直接 `UPDATE providers` / 直改 `cc-switch.db`；DB 写入一律走 `ccs_db.py` 子命令。规范终态：snippet 持有这些键，provider config 不重复持有。
+
+### 范围确认（重要）
+
+“同步到 CCS / 更新 CCS 配置”本身有歧义。**只有用户明确提到“通用配置 / common-config”时才操作 snippet**；未明确时先确认范围（provider 配置 / 通用配置 / 两边一起），**不要擅自只改 common-config**。

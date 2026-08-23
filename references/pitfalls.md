@@ -23,3 +23,4 @@
 | 官方 MCP 不在 `mcp_servers` 表 | 官方/内置服务器不归用户管理 | 属正常，不要补录；三处一致只针对用户自建 MCP |
 | CCS 3.20.0 编辑页零改动保存即破坏 Codex 配置 | 前端 smol-toml 重排 + 后端剥离/合并通用配置，空命令 stdio MCP 落盘；现象含 `notify = [...]` 错位、`[plugins]`/`[marketplaces]` 被剥离、`[mcp_servers]` 与 `[mcp_servers.node_repl(.env)]` 块/键被改写或重排 | 不要用编辑页保存/提取；用本技能 `check --strict` / `doctor --audit` / `repair` / `common-config` 维护；保存后与 `config.toml.bak` 或 `snapshot`/`diff` 做字节级对比；详见 references/incidents/2026-08-23-codex-config-mangle.md |
 | AI 手写临时脚本直改 DB，provider 与 snippet 持有重复键 | 绕过技能命令、没有幂等/剥离逻辑 | 用 `common-config set-key/set --apply --sync-and-enable` 规范化：snippet 持有、provider 剥离、显式打勾；禁止临时脚本直改 DB |
+| 用户只说“同步 CCS”，AI 擅自只改 common-config | 范围推断错误，把“CCS”脑补成“通用配置” | 范围不明先询问（provider / common / both）；只有用户明确提到“通用配置/common-config”才碰 snippet |
