@@ -243,6 +243,6 @@ python scripts/ccs_db.py common-config set --app-type codex --content-file snipp
 
 ### 范围确认（重要）
 
-“同步”是有歧义的表述：**先确认对象（配置 / 技能 / 模板）再行动**，不要把“同步 skill”当成配置同步。若确认为配置同步且范围未明确：默认先操作 **provider 配置**（provider-first），改完后询问是否提取到通用配置模板（`common-config extract`）。只有用户明确提到“通用配置 / common-config / 模板”时才直接操作 snippet；未明确时不要擅自只改 common-config。
+“同步”由 AI **自行判断识别变更对象**（配置 / 技能 / 模板，结合上下文与待同步差异），没有问题不要轻易问用户；只有确无法识别时才询问。识别结果若包含配置，则落到“配置变更铁律”：未明确范围时默认 provider-first（`provider-set-key`），改完询问是否 `common-config extract` 到模板；只有用户明确提到“通用配置 / common-config / 模板”才直接操作 snippet；不要把“同步 skill”当成配置同步。
 
 任何不确定处，先认真阅读本技能（SKILL.md 与 references/）再行动，**不要自由发挥**；若请求确实超出本技能范围，明确告知用户并给出建议行动。
