@@ -9,6 +9,8 @@ Methodology for safely operating CC Switch (CCS): backup first, stop the app, ed
 
 > **Version compatibility**: designed and tested with CC Switch **3.20.0** (database schema v17). Run `scripts/ccs_db.py doctor` to verify the installed schema; other versions may behave differently — see `references/migration.md` for official version behavior changes.
 
+> **Iron rule**: when unsure, first carefully read this skill (SKILL.md and its references) — do not improvise or guess. If the request is genuinely outside this skill's scope, tell the user and propose concrete recommended actions instead.
+
 ## 1. Safety workflow (mandatory for any write)
 
 1. Backup: config files become `*.bak-<yyyyMMdd>-<slug>`; the database is copied to `<cc-home>/backups/db_backup_<stamp>.db`.
@@ -69,6 +71,7 @@ Methodology for safely operating CC Switch (CCS): backup first, stop the app, ed
 - **Common-config maintenance**: `common-config` only modifies the snippet when explicitly invoked; `enable` requires an idempotence check (stripping the snippet and re-merging must stay semantically equivalent); `extract` auto-enables after success; `set*` asks whether to sync the current config and enable (non-interactive defaults to no sync unless `--sync-and-enable`).
 - **Canonical "update both provider and common config" flow**: use `common-config set-key|set --apply --sync-and-enable` — it updates the snippet, strips duplicate snippet keys from the current provider config, and enables the flag in one step. Never hand-write temporary scripts to edit the CCS DB directly; DB writes go through `ccs_db.py`. Canonical state: the snippet owns the keys, the provider config does not duplicate them.
 - **Scope disambiguation**: "sync" / "同步" without an explicit scope defaults to the **provider config** (provider-first). After the change, **ask whether to extract it to the common-config template** (`common-config extract`). Only touch the `common-config` snippet directly when the user explicitly says "common config" / "通用配置" / "模板"; never unilaterally change only the common-config.
+- **Uncertainty handling**: when unsure, first re-read this skill (SKILL.md and its references) — do not improvise. If the request is outside this skill's scope, tell the user and propose recommended actions.
 
 ## References
 
