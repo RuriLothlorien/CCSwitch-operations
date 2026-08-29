@@ -1,5 +1,11 @@
 # v1.1.3 增量更新
 
+## 本次修订（同版本覆盖，v1.1.3）
+
+- **新增重要警告**：Codex **桌面版**以 `~/.codex/auth.json` 是否存在判定登录态。按 3.20.1 config-only 迁移时**不要删除 auth.json**，否则即使 `config.toml` 已写入 `experimental_bearer_token`，桌面版也会回到默认登录页。
+- 应对：保留 `~/.codex/auth.json`（含 `OPENAI_API_KEY`），并在 CCS 设置中打开“非接管切换时保留官方登录”（`preserveCodexOfficialAuthOnSwitch=true`）。
+- 文档更新位置：`SKILL.md`、`README.md` / `README.en.md`、`references/migration.md`、`references/pitfalls.md`、`references/operations.md`。
+
 ## 新增能力（相对 v1.1.2）
 
 - 对齐 **CC Switch 3.20.1（schema v18）**：`doctor` 可识别 v18；兼容基线更新（3.20.0 = v17 仍兼容）
@@ -31,6 +37,9 @@ python scripts/ccs_db.py doctor --audit
 ---
 
 ## v1.1.3 Incremental (English)
+
+- **New warning**: the Codex **desktop app** decides login state by the presence of `~/.codex/auth.json`. Do not delete `auth.json` during a 3.20.1 config-only migration — even with `experimental_bearer_token` in `config.toml`, the desktop app returns to the default login screen.
+- Keep `~/.codex/auth.json` (with `OPENAI_API_KEY`) and enable “Preserve official Codex auth on switch” (`preserveCodexOfficialAuthOnSwitch=true`).
 
 - Aligned with CC Switch 3.20.1 (schema v18; 3.20.0/v17 still compatible)
 - New Codex 0.149 config-only compatibility: `check --strict` detects rejected shapes; `repair --mode codex-0149` migrates fixable ones
