@@ -14,7 +14,7 @@ The package is self-contained: no installer script, no external helper dependenc
 If this skill helps you, please give it a ⭐.
 
 > [!WARNING]
-> **Known CC Switch 3.20.0 manual-edit bug**: saving the Codex provider page in CC Switch — even without changing anything — can reorder `~/.codex/config.toml`, strip common-config blocks, misplace markers, and even serialize a url-only remote MCP as `type="stdio"` + `command=""`; the "extract common config" flow is affected too (upstream issue [#6719](https://github.com/farion1231/cc-switch/issues/6719)).
+> **Known CC Switch 3.20.0/3.20.1 manual-edit bug (not fixed in 3.20.1, #6719)**: saving the Codex provider page in CC Switch — even without changing anything — can reorder `~/.codex/config.toml`, strip common-config blocks, misplace markers, and even serialize a url-only remote MCP as `type="stdio"` + `command=""`; the "extract common config" flow is affected too (upstream issue [#6719](https://github.com/farion1231/cc-switch/issues/6719)).
 > **Recommendation**: do not use the CC Switch edit page to maintain Codex provider/common config. Use this skill's commands instead (`check --strict`, `doctor --audit`, `repair`, `common-config`, `provider-block`, ...).
 
 ## Why this skill?
@@ -33,7 +33,7 @@ This skill turns safe maintenance into one repeatable workflow:
 
 ## Compatibility
 
-- Designed and tested with **CC Switch 3.20.0** (database schema v17).
+- Designed and tested with **CC Switch 3.20.1** (database schema v18); CC Switch 3.20.0 (schema v17) remains compatible.
 - Run `python scripts/ccs_db.py doctor` to check your installed version and schema before operating.
 - Other versions may behave differently; see `references/migration.md` for official version behavior changes.
 

@@ -162,7 +162,7 @@ def resolve_provider_id(con, cc_home: Path, app_type, explicit_id=None):
 
 def cmd_mcp_upsert(args):
     cc_home, db_path = resolve_paths(args)
-    run_preflight(args, cc_home, db_path)
+    run_preflight(args, cc_home, db_path, ("config", "common"))
     cfg = read_text(args.config_file) if args.config_file else args.config
     json.loads(cfg)
     desc = read_text(args.description_file) if args.description_file else (args.description or "")
@@ -200,7 +200,7 @@ def cmd_mcp_upsert(args):
 
 def cmd_prompt_set(args):
     cc_home, db_path = resolve_paths(args)
-    run_preflight(args, cc_home, db_path)
+    run_preflight(args, cc_home, db_path, ())
     content = read_text(args.content_file) if args.content_file else (args.content or "")
     name = args.name or "全局"
     now_ms = int(time.time() * 1000)
@@ -236,7 +236,7 @@ def cmd_skill_upsert(args):
     desc = read_text(args.description_file) if args.description_file else (args.description or "")
     directory = args.directory or args.name
     cc_home, db_path = resolve_paths(args)
-    run_preflight(args, cc_home, db_path)
+    run_preflight(args, cc_home, db_path, ())
     source = cc_home / "skills" / directory / "SKILL.md"
     content_hash = args.content_hash or ""
     if source.exists():
@@ -428,7 +428,7 @@ def cmd_set_flags(args):
     if not updates:
         raise SystemExit("provide at least one flag with 0 or 1 (e.g. --claude 1 --codex 0)")
     cc_home, db_path = resolve_paths(args)
-    run_preflight(args, cc_home, db_path)
+    run_preflight(args, cc_home, db_path, ())
     con = connect(db_path)
     cur = con.cursor()
     row = cur.execute(f"SELECT name FROM {args.table} WHERE name=?", (args.name,)).fetchone()
@@ -633,6 +633,9 @@ TOP_LEVEL_ONLY_KEYS = (
     "notify", "model_instructions_file",
 )
 
+CODEX_LEGACY_RESERVED_IDS = {"openai", "ollama", "lmstudio"}
+CODEX_RESERVED_BEDROCK_ID = "amazon-bedrock-runtime"
+
 MARKER_TAGS = ("instructions", "hooks", "mcp")
 
 
@@ -747,6 +750,60 @@ def top_level_key_issues(text):
     return issues
 
 
+def codex_0149_issues(text, is_official=False):
+    """Detect Codex CLI 0.149-rejected shapes in a provider config.
+
+    Official-category providers legitimately have no [model_providers.*] table
+    and may carry requires_openai_auth=true without own credentials, so they
+    are skipped entirely.
+    """
+    if is_official:
+        return []
+    issues = []
+    sections = parse_sections(text)
+    top = {}
+    for header, path, i, body in sections:
+        if path is None:
+            top = _body_map(body)
+
+    if "openai_base_url" in top:
+        issues.append(
+            "top-level openai_base_url legacy reroute must be migrated "
+            "to [model_providers.cc-switch]"
+        )
+
+    provider_tables = [
+        (header, path, body)
+        for header, path, _, body in sections
+        if path and path[0] == "model_providers" and len(path) >= 2
+    ]
+    if not provider_tables:
+        has_key = any(
+            k in top for k in ("experimental_bearer_token", "api_key", "apiKey", "OPENAI_API_KEY")
+        )
+        if not has_key:
+            issues.append(
+                "empty third-party card: no [model_providers.*] table and no own key "
+                "(Codex 0.149 switch will refuse)"
+            )
+
+    for header, path, body in provider_tables:
+        pid = path[1]
+        m = _body_map(body)
+        if pid in CODEX_LEGACY_RESERVED_IDS:
+            issues.append(
+                f"{header}: legacy reserved provider id '{pid}' must be renamed (Codex 0.149 rejects)"
+            )
+        if "name" not in m and pid != CODEX_RESERVED_BEDROCK_ID:
+            issues.append(f"{header}: missing 'name' (Codex 0.149 rejects whole config)")
+        has_own = any(k in m for k in ("experimental_bearer_token", "api_key", "apiKey"))
+        if m.get("requires_openai_auth") == "true" and not has_own:
+            issues.append(
+                f"{header}: requires_openai_auth=true but no own credentials (switch will be refused)"
+            )
+    return issues
+
+
 def header_order_issues(text):
     issues = []
     sections = parse_sections(text)
@@ -790,7 +847,7 @@ def live_only_issues(text):
     return issues
 
 
-def find_header_issues(text, is_provider_config=False):
+def find_header_issues(text, is_provider_config=False, is_official=False):
     issues = []
     issues += marker_issues(text)
     issues += mcp_semantic_issues(text)
@@ -798,6 +855,7 @@ def find_header_issues(text, is_provider_config=False):
     issues += header_order_issues(text)
     if is_provider_config:
         issues += live_only_issues(text)
+        issues += codex_0149_issues(text, is_official=is_official)
     return issues
 
 
@@ -907,6 +965,73 @@ def strip_live_only_sections(text):
     return _join_sections(kept), removed
 
 
+def repair_codex_0149(text):
+    """Migrate Codex CLI 0.149-rejected shapes in a provider config.
+
+    - Renames legacy reserved tables ([model_providers.openai|ollama|lmstudio]).
+    - Backfills missing `name` (except amazon-bedrock-runtime).
+    - Migrates top-level openai_base_url + experimental_bearer_token into a
+      proper [model_providers.cc-switch] table when a key is present.
+    Empty/keyless shapes are only reported, not auto-created.
+    """
+    sections = parse_sections(text)
+    top_idx = next((n for n, s in enumerate(sections) if s[0] is None), None)
+    top = _body_map(sections[top_idx][3]) if top_idx is not None else {}
+    changes = []
+    new_sections = []
+
+    for header, path, i, body in sections:
+        if path is None:
+            body = [
+                line for line in body
+                if not _is_top_key_line(line, {"openai_base_url", "experimental_bearer_token"})
+            ]
+            new_sections.append([None, None, i, body])
+        elif path[0] == "model_providers" and len(path) >= 2:
+            pid = path[1]
+            new_header = header
+            new_path = path
+            if pid in CODEX_LEGACY_RESERVED_IDS:
+                new_pid = f"cc-switch-{pid}"
+                new_header = f"[model_providers.{new_pid}]"
+                new_path = ("model_providers", new_pid)
+                changes.append(f"renamed {header} -> {new_header}")
+            m = _body_map(body)
+            if "name" not in m and new_path[1] != CODEX_RESERVED_BEDROCK_ID:
+                body = list(body) + [f'name = "{new_path[1]}"']
+                changes.append(f"backfilled name for {new_header}")
+            new_sections.append([new_header, new_path, i, body])
+        else:
+            new_sections.append([header, path, i, body])
+
+    if "openai_base_url" in top:
+        token = top.get("experimental_bearer_token")
+        if token:
+            new_sections.append([
+                "[model_providers.cc-switch]",
+                ("model_providers", "cc-switch"),
+                0,
+                [
+                    'name = "CC Switch"',
+                    f"base_url = {top['openai_base_url']}",
+                    f"experimental_bearer_token = {token}",
+                ],
+            ])
+            changes.append(
+                "migrated top-level openai_base_url + experimental_bearer_token "
+                "-> [model_providers.cc-switch]"
+            )
+        else:
+            changes.append(
+                "top-level openai_base_url has no own key; not auto-migrated "
+                "(add a key or a [model_providers.*] table)"
+            )
+
+    if not changes:
+        return text, []
+    return _join_sections(new_sections), changes
+
+
 def toml_to_map(text):
     out = {}
     for header, path, _, body in parse_sections(text):
@@ -1004,7 +1129,7 @@ def collect_structural_issues(cc_home, db_path, targets=("providers", "config", 
         cur = con.cursor()
         if "providers" in targets:
             for r in cur.execute(
-                "SELECT id, app_type, name, settings_config FROM providers"
+                "SELECT id, app_type, name, category, settings_config FROM providers"
             ):
                 try:
                     obj = json.loads(r["settings_config"] or "{}")
@@ -1012,7 +1137,11 @@ def collect_structural_issues(cc_home, db_path, targets=("providers", "config", 
                     continue
                 cfg = obj.get("config")
                 if isinstance(cfg, str) and cfg.strip():
-                    for iss in find_header_issues(cfg, is_provider_config=(r["app_type"] == "codex")):
+                    for iss in find_header_issues(
+                        cfg,
+                        is_provider_config=(r["app_type"] == "codex"),
+                        is_official=(r["category"] == "official"),
+                    ):
                         issues.append(f"provider[{r['name']}]: {iss}")
         if "common" in targets:
             for app in ("codex", "claude", "gemini"):
@@ -1299,16 +1428,21 @@ def cmd_repair(args):
         new_text = text
         moved = []
         removed = []
+        c149 = []
         if mode in ("header-order", "both"):
             new_text, moved = repair_header_order(new_text)
         if mode == "live-only":
             new_text, removed = strip_live_only_sections(new_text)
+        if mode in ("codex-0149", "both"):
+            new_text, c149 = repair_codex_0149(new_text)
         changed = new_text != text
         print(f"[{'APPLY' if apply else 'DRY-RUN'}] config.toml changed={changed}")
         if moved:
             print("  moved:", ", ".join(moved[:30]))
         if removed:
             print("  removed:", ", ".join(removed[:30]))
+        if c149:
+            print("  codex-0149:", "; ".join(c149[:30]))
         if changed and apply:
             backup_file(path, "repair")
             path.write_text(new_text, encoding="utf-8")
@@ -1331,16 +1465,21 @@ def cmd_repair(args):
             new_cfg = cfg
             moved = []
             removed = []
+            c149 = []
             if mode in ("header-order", "both"):
                 new_cfg, moved = repair_header_order(new_cfg)
             if mode in ("live-only", "both"):
                 new_cfg, removed = strip_live_only_sections(new_cfg)
+            if mode in ("codex-0149", "both"):
+                new_cfg, c149 = repair_codex_0149(new_cfg)
             changed = new_cfg != cfg
             print(f"[{'APPLY' if apply else 'DRY-RUN'}] provider {provider_id} changed={changed}")
             if moved:
                 print("  moved:", ", ".join(moved[:30]))
             if removed:
                 print("  removed:", ", ".join(removed[:30]))
+            if c149:
+                print("  codex-0149:", "; ".join(c149[:30]))
             if changed and apply:
                 backup_db(cc_home, db_path, "repair-provider")
                 obj["config"] = new_cfg
@@ -1587,7 +1726,7 @@ def build_parser():
 
     rp = sub.add_parser("repair", help="fix header order / live-only sections (dry-run by default)")
     rp.add_argument("--target", required=True, choices=("config.toml", "provider", "common"))
-    rp.add_argument("--mode", choices=("header-order", "live-only", "both"), default="both")
+    rp.add_argument("--mode", choices=("header-order", "live-only", "both", "codex-0149"), default="both")
     rp.add_argument("--apply", action="store_true", help="write changes (with automatic backup)")
     rp.add_argument("--provider-id")
     rp.add_argument("--app-type", choices=APP_TYPES, default="codex")

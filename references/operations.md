@@ -203,6 +203,20 @@ python scripts/ccs_db.py provider-block --app-type codex \
 
 `check --strict` 也会检测**顶层键被挪进表内**（如 `notify = [...]` 出现在某个 `[table]` 之后/内部）；`repair --mode header-order` 会自动把这类顶层键移回 preamble（所有 `[table]` 之前）。
 
+### Codex 0.149 config-only 兼容（3.20.1）
+
+```bash
+# 检测 0.149 拒绝形态（遗留保留表 / 缺 name / 顶层 openai_base_url / 空卡 / 无凭据 requires_openai_auth）
+python scripts/ccs_db.py check --strict
+
+# 自动迁移（默认 dry-run，--apply 写入并自动备份）
+python scripts/ccs_db.py repair --target provider --app-type codex --mode codex-0149
+python scripts/ccs_db.py repair --target provider --app-type codex --mode codex-0149 --apply
+python scripts/ccs_db.py repair --target config.toml --mode codex-0149 --apply
+```
+
+说明：`codex-0149` 会改名遗留保留表、回填缺失的 `name`、把带密钥的顶层 `openai_base_url` 迁移为 `[model_providers.cc-switch]`；空卡/无凭据卡只检测提示，需补密钥或 provider 表。
+
 ## 通用配置维护（v1.1.0+）
 
 ```bash

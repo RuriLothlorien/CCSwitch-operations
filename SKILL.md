@@ -7,7 +7,7 @@ description: "Operate CC Switch (CCS): safely modify and sync its managed config
 
 Methodology for safely operating CC Switch (CCS): backup first, stop the app, edit, validate, restart, and re-check.
 
-> **Version compatibility**: designed and tested with CC Switch **3.20.0** (database schema v17). Run `scripts/ccs_db.py doctor` to verify the installed schema; other versions may behave differently — see `references/migration.md` for official version behavior changes.
+> **Version compatibility**: designed and tested with CC Switch **3.20.1** (database schema v18); CC Switch 3.20.0 (schema v17) remains compatible. Run `scripts/ccs_db.py doctor` to verify the installed schema; other versions may behave differently — see `references/migration.md` for official version behavior changes.
 
 > **Iron rule**: when unsure, first carefully read this skill (SKILL.md and its references) — do not improvise or guess. If the request is genuinely outside this skill's scope, tell the user and propose concrete recommended actions instead.
 
@@ -30,7 +30,7 @@ Methodology for safely operating CC Switch (CCS): backup first, stop the app, ed
 
 ## 3. Architecture (details: references/architecture.md)
 
-- Database: `<cc-home>/cc-switch.db` (schema v17 as of CCS 3.20). Hand-maintained tables: `providers`, `prompts`, `skills`, `mcp_servers`, `settings`. CCS-managed tables (`model_pricing`, `profiles`, `proxy_*`, `session_usage_dedup`, `usage_daily_rollups`, `skill_repos`, ...) must not be edited by hand.
+- Database: `<cc-home>/cc-switch.db` (schema v18 as of CCS 3.20.1; v17 on 3.20.0). Hand-maintained tables: `providers`, `prompts`, `skills`, `mcp_servers`, `settings`. CCS-managed tables (`model_pricing`, `profiles`, `proxy_*`, `session_log_sync`, `session_usage_dedup`, `usage_daily_rollups`, `skill_repos`, ...) must not be edited by hand.
 - `cc-home` discovery: `CC_SWITCH_HOME` env var, else `~/.cc-switch`. `scripts/ccs_db.py` resolves this automatically; `doctor` prints the resolved paths.
 - Managed apps (9): codex, claude, claude-desktop, gemini, grokbuild, opencode, openclaw, hermes, pi. Switch-mode apps (claude/codex/gemini) write only the current provider; additive-mode apps (opencode/openclaw/hermes/pi) let providers coexist. Pi has no MCP registry and its skills are exists-equals-enabled; Claude Desktop is not synced by CCS.
 - Official/bundled MCP servers (for example `openaiDeveloperDocs`) are intentionally absent from the `mcp_servers` table; do not add them.
@@ -63,11 +63,12 @@ Methodology for safely operating CC Switch (CCS): backup first, stop the app, ed
 - Target apps are fully restarted before judging visibility.
 - After any write, confirm the config text did not change beyond the intended edit (byte-level re-check).
 
-## 8. Proactive preflight and known upstream defect (3.20.0)
+## 8. Proactive preflight and known upstream defect (3.20.0/3.20.1)
 
 - **Proactive preflight**: every mutating command (`provider-block` / `provider-env` / `mcp-upsert` / `prompt-set` / `skill-upsert` / `set-flags` / `common-config set|set-key|remove-key|extract` / `repair --apply`) runs a read-only structural audit first. If it finds empty-command stdio MCP servers, unpaired markers, misplaced/out-of-place table headers, or live-only sections, the write is refused with repair hints (`--force` overrides).
-- **Known upstream defect**: CC Switch 3.20.0's provider edit page — even when saved without any changes — can reorder `config.toml`, strip common-config blocks, misplace markers, and serialize a url-only remote MCP as `type="stdio"` + `command=""` (frontend smol-toml round-trip plus backend toml_edit strip/merge). **Do not use the edit page to save or extract Codex provider config**; use this skill's commands instead.
+- **Known upstream defect**: CC Switch 3.20.0's provider edit page — even when saved without any changes — can reorder `config.toml`, strip common-config blocks, misplace markers, and serialize a url-only remote MCP as `type="stdio"` + `command=""` (frontend smol-toml round-trip plus backend toml_edit strip/merge). **This remains unfixed in 3.20.1** (upstream #6719). **Do not use the edit page to save or extract Codex provider config**; use this skill's commands instead.
   - Common symptoms: top-level `notify = [...]` displaced, `[plugins]` / `[marketplaces]` blocks stripped, `[mcp_servers]` / `[mcp_servers.node_repl(.env)]` blocks or keys rewritten or reordered.
+- **Codex 0.149 config-only compatibility**: since CC Switch 3.20.1, third-party switching is config-only (key in `[model_providers.*]` as `experimental_bearer_token`, `auth.json` = official login only). `check --strict` detects 0.149-rejected shapes (legacy reserved tables `[model_providers.openai|ollama|lmstudio]`, missing `name`, top-level `openai_base_url` reroutes, empty/keyless third-party cards); `repair --mode codex-0149` migrates the auto-fixable ones (rename, backfill `name`, migrate `openai_base_url` + token into `[model_providers.cc-switch]`).
 - **Common-config maintenance**: `common-config` only modifies the snippet when explicitly invoked; `enable` requires an idempotence check (stripping the snippet and re-merging must stay semantically equivalent); `extract` auto-enables after success; `set*` asks whether to sync the current config and enable (non-interactive defaults to no sync unless `--sync-and-enable`).
 - **Canonical "update both provider and common config" flow**: use `common-config set-key|set --apply --sync-and-enable` — it updates the snippet, strips duplicate snippet keys from the current provider config, and enables the flag in one step. Never hand-write temporary scripts to edit the CCS DB directly; DB writes go through `ccs_db.py`. Canonical state: the snippet owns the keys, the provider config does not duplicate them.
 - **Scope disambiguation**: identify the sync object (configuration / skill files / template) yourself from context and pending changes — do not ask the user unless it is genuinely unresolvable. If the identified scope includes configuration, fall into the config-change iron rules below (provider-first, then ask about extracting to the template; preflight, backup/stop/validate/restart). Only touch the `common-config` snippet directly when the user explicitly says "common config" / "通用配置" / "模板"; never treat a sync of one object as a sync of a different object (e.g., skill files vs configuration, or vice versa).

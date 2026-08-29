@@ -1,6 +1,6 @@
 # CC Switch 架构速查
 
-## 数据库 `<cc-home>/cc-switch.db`（CCS 3.20 = schema v17）
+## 数据库 `<cc-home>/cc-switch.db`（CCS 3.20.0 = schema v17；CCS 3.20.1 = schema v18）
 
 `cc-home` 解析顺序：`CC_SWITCH_HOME` 环境变量 → `~/.cc-switch`。
 
@@ -16,7 +16,7 @@
 
 ### CCS 自管表（不要手改）
 
-`model_pricing`、`profiles`、`provider_endpoints`、`provider_health`、`proxy_config`、`proxy_live_backup`、`proxy_request_logs`、`session_log_sync`、`session_usage_dedup`（v17 新增）、`skill_repos`、`stream_check_logs`、`usage_daily_rollups` —— 用量、代理、故障转移、Profile、repo skill 安装都在这里，改坏会被 CCS 回写或导致面板异常。
+`model_pricing`、`profiles`、`provider_endpoints`、`provider_health`、`proxy_config`、`proxy_live_backup`、`proxy_request_logs`、`session_log_sync`（v18 新增字节游标/尾部指纹列）、`session_usage_dedup`（v17 新增）、`skill_repos`、`stream_check_logs`、`usage_daily_rollups` —— 用量、代理、故障转移、Profile、repo skill 安装都在这里，改坏会被 CCS 回写或导致面板异常。
 
 ## settings.json（`<cc-home>/settings.json`）
 
@@ -31,6 +31,7 @@
 - **Claude Desktop 3P**：`%LOCALAPPDATA%\Claude-3p\claude_desktop_config.json`（MCP/偏好）+ `configLibrary\...157210.json`（网关/模型/toolSearchEnabled）。CCS 会自动维护这些文件，但不负责 MCP/Skills 内容（3.20 源码仍显式跳过 Claude Desktop）。
 - **Claude Desktop 1P**：`%APPDATA%\Claude\claude_desktop_config.json`。
 - **模型目录**：`~/.codex/cc-switch-model-catalog.json`（CCS 从供应商模板生成；DeepSeek 模板需保持 `supports_search_tool:false` 以规避工具不可见问题）。3.20 的目录支持逐模型思考档位；`model_catalog_json` 指针只在缺失或已是 CCS 自有文件名时才被认领。
+- **Codex 3.20.1 config-only 切换**：第三方密钥写进 `[model_providers.*]` 表的 `experimental_bearer_token`（属正常形态），`auth.json` 仅存官方 ChatGPT 登录；“非接管切换时保留官方登录”关闭时切换第三方会删除 `auth.json`。
 - **恢复 `.db` 备份（3.20 行为变化）**：恢复后会按新库**重写所有受管应用的 live 配置（Pi 除外）**，而旧版只改数据库——恢复后仍需复核 MCP 三处一致。
 
 ## 受管应用（CCS 3.20 共 9 个）与 Skills 目录

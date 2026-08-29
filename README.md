@@ -14,7 +14,7 @@
 如果这个技能对你有帮助，欢迎点个 Star ⭐。
 
 > [!WARNING]
-> **CC Switch 3.20.0 手动编辑缺陷（已知）**：在 Codex 供应商编辑页**即使不做任何修改直接保存**，也可能导致 `~/.codex/config.toml` 块顺序重排、通用配置被剥离、标记错位，甚至把 url-only 远程 MCP 写成 `type="stdio"` + `command=""`；“通用配置提取”同样受影响（上游 issue [#6719](https://github.com/farion1231/cc-switch/issues/6719)）。
+> **CC Switch 3.20.0/3.20.1 手动编辑缺陷（#6719 在 3.20.1 仍未修复）**：在 Codex 供应商编辑页**即使不做任何修改直接保存**，也可能导致 `~/.codex/config.toml` 块顺序重排、通用配置被剥离、标记错位，甚至把 url-only 远程 MCP 写成 `type="stdio"` + `command=""`；“通用配置提取”同样受影响（上游 issue [#6719](https://github.com/farion1231/cc-switch/issues/6719)）。
 > **建议**：不要用 CCS 编辑页维护 Codex 供应商/通用配置；请使用本技能的命令（`check --strict`、`doctor --audit`、`repair`、`common-config`、`provider-block` 等）安全修改。
 
 ## 为什么需要这个技能？
@@ -33,7 +33,7 @@ CC Switch 的配置分散在数据库、`settings.json` 和多个应用的 live 
 
 ## 版本兼容
 
-- 本技能基于 **CC Switch 3.20.0**（数据库 schema v17）设计与测试。
+- 本技能基于 **CC Switch 3.20.1**（数据库 schema v18）设计与测试；3.20.0（schema v17）仍兼容。
 - 操作前可运行 `python scripts/ccs_db.py doctor` 查看本机版本与 schema。
 - 其他版本可能略有差异，详见 `references/migration.md` 的官方版本行为变化。
 

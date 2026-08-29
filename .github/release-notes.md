@@ -1,12 +1,12 @@
-# v1.1.2 增量更新
+# v1.1.3 增量更新
 
-## 新增能力（相对 v1.1.1）
+## 新增能力（相对 v1.1.2）
 
-- 新增 `provider-set-key`：安全设置/删除 provider 配置的顶层或段内键（TOML 字面量），自动 preflight 与 TOML 校验，替代手写临时脚本直改 DB
-- 铁律更新：不确定时先认真读本技能（SKILL.md 与 references/），不得自由发挥；“同步”必须先确认对象（配置 / 技能 / 模板）再行动
-- 配置同步语义：未明确范围时默认 provider-first（`provider-set-key`），改完后询问是否提取到通用配置模板（`common-config extract`）；只有用户明示“通用配置 / common-config / 模板”才直接操作 snippet
-- 同步对象识别：由 AI 自行判断识别变更对象（配置 / 技能 / 模板），没有问题不轻易问用户；不要把对象 A 的同步当作对象 B 的同步（技能 ≠ 配置 ≠ 模板）；识别范围含配置时落到配置变更铁律（provider-first + 提取询问 + 安全流程）
-- 文档同步：operations / SKILL / pitfalls 补充上述规则与命令
+- 对齐 **CC Switch 3.20.1（schema v18）**：`doctor` 可识别 v18；兼容基线更新（3.20.0 = v17 仍兼容）
+- 新增 **Codex 0.149 config-only 兼容检测与修复**：
+  - `check --strict` 检测 0.149 拒绝形态（遗留 `[model_providers.openai|ollama|lmstudio]`、缺 `name`、顶层 `openai_base_url`、空第三方卡、`requires_openai_auth=true` 无凭据）
+  - `repair --mode codex-0149` 自动迁移可修形态（改名保留表、回填 `name`、迁移 `openai_base_url`+密钥到 `[model_providers.cc-switch]`）
+- 文档更新：3.20.1 迁移说明（v17→v18、config-only 切换、`auth.json` 语义与保留开关）、#6719 在 3.20.1 仍未修复的警告保留
 
 ## 更新安装方法
 
@@ -30,12 +30,11 @@ python scripts/ccs_db.py doctor --audit
 
 ---
 
-## v1.1.2 Incremental (English)
+## v1.1.3 Incremental (English)
 
-- New `provider-set-key`: safely set/remove top-level or dotted keys in a provider's config TOML (with preflight + TOML validation)
-- Iron rules: read the skill first when unsure; "sync" requires confirming the object (config / skill / template) before acting
-- Config sync semantics: provider-first by default (`provider-set-key`), then ask whether to `common-config extract`; only touch the snippet when the user explicitly mentions "common config" / "模板"
-- Sync object is inferred by the AI (config / skill / template) from context; don't ask unless truly unresolvable; never treat a sync of one object as a sync of a different object (skill vs config vs template); if config is in scope, apply the config-change iron rules (provider-first + extract question + safety flow)
+- Aligned with CC Switch 3.20.1 (schema v18; 3.20.0/v17 still compatible)
+- New Codex 0.149 config-only compatibility: `check --strict` detects rejected shapes; `repair --mode codex-0149` migrates fixable ones
+- Docs: v17→v18 migration, config-only switching, `auth.json` semantics; #6719 warning kept (not fixed in 3.20.1)
 
 ### Update / Install
 

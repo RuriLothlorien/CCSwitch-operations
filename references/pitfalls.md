@@ -21,8 +21,11 @@
 | Pi 同名 skill 无法覆盖/删除 | CCS 只管理它自己拥有的 skill | 先确认归属，再手动处理 `~/.pi/agent/skills` |
 | 控制台显示 `��`/乱码 | 控制台按非 UTF-8 解码 Python 输出 | 用 `ascii()` / `repr()` 核对；DB 内文本通常完好 |
 | 官方 MCP 不在 `mcp_servers` 表 | 官方/内置服务器不归用户管理 | 属正常，不要补录；三处一致只针对用户自建 MCP |
-| CCS 3.20.0 编辑页零改动保存即破坏 Codex 配置 | 前端 smol-toml 重排 + 后端剥离/合并通用配置，空命令 stdio MCP 落盘；现象含 `notify = [...]` 错位、`[plugins]`/`[marketplaces]` 被剥离、`[mcp_servers]` 与 `[mcp_servers.node_repl(.env)]` 块/键被改写或重排 | 不要用编辑页保存/提取；用本技能 `check --strict` / `doctor --audit` / `repair` / `common-config` 维护；保存后与 `config.toml.bak` 或 `snapshot`/`diff` 做字节级对比；详见 references/incidents/2026-08-23-codex-config-mangle.md |
+| CCS 3.20.0/3.20.1 编辑页零改动保存即破坏 Codex 配置（#6719 未修复） | 前端 smol-toml 重排 + 后端剥离/合并通用配置，空命令 stdio MCP 落盘；现象含 `notify = [...]` 错位、`[plugins]`/`[marketplaces]` 被剥离、`[mcp_servers]` 与 `[mcp_servers.node_repl(.env)]` 块/键被改写或重排 | 不要用编辑页保存/提取；用本技能 `check --strict` / `doctor --audit` / `repair` / `common-config` 维护；保存后与 `config.toml.bak` 或 `snapshot`/`diff` 做字节级对比；详见 references/incidents/2026-08-23-codex-config-mangle.md |
 | AI 手写临时脚本直改 DB，provider 与 snippet 持有重复键 | 绕过技能命令、没有幂等/剥离逻辑 | 用 `common-config set-key/set --apply --sync-and-enable` 规范化：snippet 持有、provider 剥离、显式打勾；禁止临时脚本直改 DB |
 | 用户只说“同步 CCS”，AI 擅自只改 common-config | 范围推断错误，把“CCS”脑补成“通用配置” | “同步”默认降级为 provider 配置；改完后询问是否提取到通用配置模板（`common-config extract`）；只有用户明确提到“通用配置/common-config/模板”才直接碰 snippet |
 | 用户说“同步”，AI 把对象 A 的同步当成对象 B 的同步（如把同步 skill 当成配置同步） | 对象推断错误 | 由 AI 自行识别变更对象（结合上下文/待同步差异），没问题不轻易问；不要把对象 A 的同步当作对象 B 的同步（技能 ≠ 配置 ≠ 模板）；识别含配置才落配置铁律（provider-first + 提取询问） |
 | AI 不确定时自由发挥 / 自己猜 | 没有先读本技能就直接行动 | 不确定时先读 SKILL.md 与 references/；确属技能范围之外时明确告知用户并提供建议行动 |
+| Codex 3.20.1 切换第三方后 `auth.json` 消失 | 保留开关关闭（默认）时切换第三方会删除 `auth.json` | 需要保留官方登录请打开“非接管切换时保留官方登录”；找回登录：切到绑定账号的官方卡或 `codex login` |
+| Codex 0.149 切换被拒（空卡/无凭据卡） | 无 `[model_providers.*]` 表或无自有密钥、`requires_openai_auth=true` 无凭据、裸顶层 `openai_base_url` | 用 `check --strict` 检测，`repair --mode codex-0149` 自动迁移可修形态；空卡/无凭据需补 `[model_providers.<id>]` 表或 API 密钥 |
+| 密钥位置变化：现在在 provider 表而非 auth.json | 3.20.1 config-only 切换 | `[model_providers.*]` 内 `experimental_bearer_token` 为正常形态；`auth.json` 仅官方登录；`extract_common_config` 会自动剥离该字段，不入模板 |
