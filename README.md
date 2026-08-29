@@ -17,6 +17,9 @@
 > **CC Switch 3.20.0/3.20.1 手动编辑缺陷（#6719 在 3.20.1 仍未修复）**：在 Codex 供应商编辑页**即使不做任何修改直接保存**，也可能导致 `~/.codex/config.toml` 块顺序重排、通用配置被剥离、标记错位，甚至把 url-only 远程 MCP 写成 `type="stdio"` + `command=""`；“通用配置提取”同样受影响（上游 issue [#6719](https://github.com/farion1231/cc-switch/issues/6719)）。
 > **建议**：不要用 CCS 编辑页维护 Codex 供应商/通用配置；请使用本技能的命令（`check --strict`、`doctor --audit`、`repair`、`common-config`、`provider-block` 等）安全修改。
 
+> [!WARNING]
+> **Codex 桌面版需要 `~/.codex/auth.json`**：CC Switch 3.20.1 的 Codex 第三方切换是 config-only（密钥写进 `[model_providers.*]` 的 `experimental_bearer_token`），但部分 Codex 构建（尤其桌面版）以 `auth.json` 是否存在判定登录态——只写 token 并删除 `auth.json` 会让 Codex 回到默认登录页。请保留 `auth.json`，并在 CCS 设置中打开“非接管切换时保留官方登录”（`preserveCodexOfficialAuthOnSwitch=true`）。
+
 ## 为什么需要这个技能？
 
 CC Switch 的配置分散在数据库、`settings.json` 和多个应用的 live 配置文件里。手动维护的痛点是：位置多、容易忘，改完还要去 Codex、Claude Code、Claude Desktop、Gemini 等每个 agent 里**逐个确认**是否生效，稍不留神漏一处，下次切换供应商时配置就被覆盖、工具就失效。更麻烦的是，**AI 在自我维护时往往只顾自己的 agent 配置，不会顾及你本机安装的 CC Switch**——它自己写的 `config.toml` / `settings.json` 可能和 CCS 的管理状态冲突，下一次切换就被回写覆盖。更糟的是，**CCS 自己也可能误操作你的配置**——例如 3.20.0 的 Codex 供应商编辑页，即使零改动直接保存，也可能重排 `config.toml`、剥离通用配置、写入空命令 MCP 坏块，带来各种麻烦。用户不应该费时费力地手动维护 CCS 与你的 agents 的一致性。

@@ -17,6 +17,7 @@
 
 - **数据库迁移 v17 → v18**：`session_log_sync` 新增字节游标与尾部指纹两列（会话日志增量扫描）。升级前自动备份；运行过 3.20.1 后旧版会拒绝打开数据库，降级需还原备份。
 - **Codex 第三方切换改为 config-only**：密钥写入该供应商 `[model_providers.*]` 表的 `experimental_bearer_token`，不再写 `auth.json`；`auth.json` 仅存官方 ChatGPT 登录。Codex <0.48 不读取该字段，需升级 Codex。
+- **注意（桌面版兼容）**：部分 Codex 构建（尤其桌面版 / patched CLI）以 `~/.codex/auth.json` 是否存在判定登录态；仅写入 `experimental_bearer_token` 而删除 `auth.json` 会回到默认登录页。请保留 `auth.json`，并在 `~/.cc-switch/settings.json` 打开 `preserveCodexOfficialAuthOnSwitch=true`，防止切换第三方时被删除。
 - **Codex 0.149 兼容**：遗留 `[model_providers.openai|ollama|lmstudio]` 表、缺 `name` 的表、顶层 `openai_base_url` 旧路由会在切换/接管时被自动修复或预检拒绝；空卡/无凭据卡会在切换时被点名拒绝。
 - **保留开关**：“非接管切换时保留官方登录”关闭（默认）时，切换第三方会**删除 `auth.json`**；找回官方登录请切到绑定账号的官方卡或 `codex login`。
 - **上游修复（技能无需变化）**：供应商编辑必达 live 配置（#6779）、Codex 编辑框不再串染密钥（#6534）、恢复备份不再清空非受管 prompt 文件（#6810）、会话扫描自动/手动开关与字节游标增量扫描。

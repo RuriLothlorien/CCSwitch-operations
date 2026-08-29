@@ -217,6 +217,12 @@ python scripts/ccs_db.py repair --target config.toml --mode codex-0149 --apply
 
 说明：`codex-0149` 会改名遗留保留表、回填缺失的 `name`、把带密钥的顶层 `openai_base_url` 迁移为 `[model_providers.cc-switch]`；空卡/无凭据卡只检测提示，需补密钥或 provider 表。
 
+> [!IMPORTANT]
+> **Codex 桌面版依赖 `~/.codex/auth.json`**：不要按“config-only 理想态”删除 auth.json，否则桌面版会回默认登录页（即使 `config.toml` 已写 `experimental_bearer_token`，手动注释掉等同未生效）。请保留 auth.json，并在 `~/.cc-switch/settings.json` 打开 `preserveCodexOfficialAuthOnSwitch=true`；切换后复核 auth.json 仍存在：
+> ```bash
+> python -c "import os; print(os.path.exists(os.path.expanduser('~/.codex/auth.json')))"
+> ```
+
 ## 通用配置维护（v1.1.0+）
 
 ```bash
