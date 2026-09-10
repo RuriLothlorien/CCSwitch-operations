@@ -203,7 +203,7 @@ python scripts/ccs_db.py provider-block --app-type codex \
 
 `check --strict` 也会检测**顶层键被挪进表内**（如 `notify = [...]` 出现在某个 `[table]` 之后/内部）；`repair --mode header-order` 会自动把这类顶层键移回 preamble（所有 `[table]` 之前）。
 
-### Codex 0.149 config-only 兼容（3.20.1）
+### Codex 0.149 config-only 兼容（3.20.1+，含 3.20.2 的 flag 规则）
 
 ```bash
 # 检测 0.149 拒绝形态（遗留保留表 / 缺 name / 顶层 openai_base_url / 空卡 / 无凭据 requires_openai_auth）
@@ -215,7 +215,15 @@ python scripts/ccs_db.py repair --target provider --app-type codex --mode codex-
 python scripts/ccs_db.py repair --target config.toml --mode codex-0149 --apply
 ```
 
-说明：`codex-0149` 会改名遗留保留表、回填缺失的 `name`、把带密钥的顶层 `openai_base_url` 迁移为 `[model_providers.cc-switch]`；空卡/无凭据卡只检测提示，需补密钥或 provider 表。
+说明：`codex-0149` 会改名遗留保留表、回填缺失的 `name`、把带密钥的顶层 `openai_base_url` 迁移为 `[model_providers.cc-switch]`；对代理托管 OAuth 卡（`providers.meta.provider_type` = `xai_oauth` / `github_copilot`）还会把活跃表上的 `requires_openai_auth` 改为 `false`（与 CCS 3.20.2 一致）。空卡/无凭据的普通第三方卡仍然只提示，不会自动造表。
+
+```bash
+# 代理托管 OAuth 卡：检查标志 + 修正（Codex OAuth 卡不适用，其官方登录即凭据）
+python scripts/ccs_db.py doctor --audit          # 只读：列出结构问题与三处 MCP 一致性
+python scripts/ccs_db.py check --strict          # 只读：点名 requires_openai_auth=true 的代理 OAuth 卡
+python scripts/ccs_db.py repair --target provider --provider-id <id> --mode codex-0149 --apply
+# 修的是 DB 模板；live config.toml 上的旧值要等下一次切换（或手动重切一次）才被重写
+```
 
 > [!IMPORTANT]
 > **Codex 桌面版依赖 `~/.codex/auth.json`**：不要按“config-only 理想态”删除 auth.json，否则桌面版会回默认登录页（即使 `config.toml` 已写 `experimental_bearer_token`，手动注释掉等同未生效）。请保留 auth.json，并在 `~/.cc-switch/settings.json` 打开 `preserveCodexOfficialAuthOnSwitch=true`；切换后复核 auth.json 仍存在：

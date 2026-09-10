@@ -1,6 +1,6 @@
 # CC Switch 架构速查
 
-## 数据库 `<cc-home>/cc-switch.db`（CCS 3.20.0 = schema v17；CCS 3.20.1 = schema v18）
+## 数据库 `<cc-home>/cc-switch.db`（CCS 3.20.0 = schema v17；CCS 3.20.1–3.20.2 = schema v18，3.20.2 无迁移）
 
 `cc-home` 解析顺序：`CC_SWITCH_HOME` 环境变量 → `~/.cc-switch`。
 
@@ -31,7 +31,8 @@
 - **Claude Desktop 3P**：`%LOCALAPPDATA%\Claude-3p\claude_desktop_config.json`（MCP/偏好）+ `configLibrary\...157210.json`（网关/模型/toolSearchEnabled）。CCS 会自动维护这些文件，但不负责 MCP/Skills 内容（3.20 源码仍显式跳过 Claude Desktop）。
 - **Claude Desktop 1P**：`%APPDATA%\Claude\claude_desktop_config.json`。
 - **模型目录**：`~/.codex/cc-switch-model-catalog.json`（CCS 从供应商模板生成；DeepSeek 模板需保持 `supports_search_tool:false` 以规避工具不可见问题）。3.20 的目录支持逐模型思考档位；`model_catalog_json` 指针只在缺失或已是 CCS 自有文件名时才被认领。
-- **Codex 3.20.1 config-only 切换**：第三方密钥写进 `[model_providers.*]` 表的 `experimental_bearer_token`（属正常形态），`auth.json` 仅存官方 ChatGPT 登录；“非接管切换时保留官方登录”关闭时切换第三方会删除 `auth.json`。
+- **Codex 3.20.1+ config-only 切换**：第三方密钥写进 `[model_providers.*]` 表的 `experimental_bearer_token`（属正常形态），`auth.json` 仅存官方 ChatGPT 登录；“非接管切换时保留官方登录”关闭时切换第三方会删除 `auth.json`（3.20.2 只修了接管路径，直切行为不变）。
+- **Codex `requires_openai_auth`（3.20.2）**：代理托管 OAuth 卡（`providers.meta.provider_type` = `xai_oauth` / `github_copilot`）的活跃表被强制为 `false`（令牌由本地代理逐请求注入）；接管写入会按 Codex 观察到的登录状态覆盖该标志（`file` 跟随 auth.json、`ephemeral` 记未登录、`keyring`/`auto` 保留原值）；**Codex OAuth 例外**——官方登录即其凭据。
 - **恢复 `.db` 备份（3.20 行为变化）**：恢复后会按新库**重写所有受管应用的 live 配置（Pi 除外）**，而旧版只改数据库——恢复后仍需复核 MCP 三处一致。
 
 ## 受管应用（CCS 3.20 共 9 个）与 Skills 目录

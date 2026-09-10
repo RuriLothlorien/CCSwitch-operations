@@ -14,11 +14,11 @@
 如果这个技能对你有帮助，欢迎点个 Star ⭐。
 
 > [!WARNING]
-> **CC Switch 3.20.0/3.20.1 手动编辑缺陷（#6719 在 3.20.1 仍未修复）**：在 Codex 供应商编辑页**即使不做任何修改直接保存**，也可能导致 `~/.codex/config.toml` 块顺序重排、通用配置被剥离、标记错位，甚至把 url-only 远程 MCP 写成 `type="stdio"` + `command=""`；“通用配置提取”同样受影响（上游 issue [#6719](https://github.com/farion1231/cc-switch/issues/6719)）。
+> **CC Switch 3.20.0–3.20.2 手动编辑缺陷（#6719 截至 3.20.2 仍未修复）**：在 Codex 供应商编辑页**即使不做任何修改直接保存**，也可能导致 `~/.codex/config.toml` 块顺序重排、通用配置被剥离、标记错位，甚至把 url-only 远程 MCP 写成 `type="stdio"` + `command=""`；“通用配置提取”同样受影响（上游 issue [#6719](https://github.com/farion1231/cc-switch/issues/6719)）。
 > **建议**：不要用 CCS 编辑页维护 Codex 供应商/通用配置；请使用本技能的命令（`check --strict`、`doctor --audit`、`repair`、`common-config`、`provider-block` 等）安全修改。
 
 > [!WARNING]
-> **Codex 桌面版需要 `~/.codex/auth.json`**：CC Switch 3.20.1 的 Codex 第三方切换是 config-only（密钥写进 `[model_providers.*]` 的 `experimental_bearer_token`），但部分 Codex 构建（尤其桌面版）以 `auth.json` 是否存在判定登录态——只写 token 并删除 `auth.json` 会让 Codex 回到默认登录页。请保留 `auth.json`，并在 CCS 设置中打开“非接管切换时保留官方登录”（`preserveCodexOfficialAuthOnSwitch=true`）。
+> **Codex 桌面版需要 `~/.codex/auth.json`**：CC Switch 3.20.1 起的 Codex 第三方切换是 config-only（密钥写进 `[model_providers.*]` 的 `experimental_bearer_token`），但部分 Codex 构建（尤其桌面版）以 `auth.json` 是否存在判定登录态——只写 token 并删除 `auth.json` 会让 Codex 回到默认登录页。3.20.2 只修了**接管**路径，**直切**第三方仍会删除 `auth.json`。请保留 `auth.json`，并在 CCS 设置中打开“非接管切换时保留官方登录”（`preserveCodexOfficialAuthOnSwitch=true`）。
 
 ## 为什么需要这个技能？
 
@@ -36,7 +36,8 @@ CC Switch 的配置分散在数据库、`settings.json` 和多个应用的 live 
 
 ## 版本兼容
 
-- 本技能基于 **CC Switch 3.20.1**（数据库 schema v18）设计与测试；3.20.0（schema v17）仍兼容。
+- 本技能基于 **CC Switch 3.20.2**（数据库 schema v18；3.20.2 不含数据库迁移）设计与测试；3.20.1（schema v18）与 3.20.0（schema v17）仍兼容。
+- 代理托管 OAuth 卡（xAI OAuth / GitHub Copilot）在 3.20.2 起由 CCS 强制 `requires_openai_auth = false`（令牌由本地代理注入），存量卡下次切换自愈；`check --strict` 会点名该标志，`repair --mode codex-0149` 可提前修正。
 - 操作前可运行 `python scripts/ccs_db.py doctor` 查看本机版本与 schema。
 - 其他版本可能略有差异，详见 `references/migration.md` 的官方版本行为变化。
 

@@ -4,7 +4,7 @@
 | --- | --- | --- |
 | CCS 面板中文显示 `???` | PowerShell 5.1 管道把中文按 GBK 传给 `python -` | 用 `scripts/ccs_db.py`（内联 argv 或 `--*-file`），禁止管道传中文 |
 | `.ps1` 中文乱码 / 解析报错 | 无 BOM UTF-8 被 PS 5.1 按 GBK 解码 | 存为 UTF-8 with BOM |
-| Codex 里 MCP 工具全部不可见 | 模型目录 `supports_search_tool:true` + `tool_mode:null` | 改目录为 `supports_search_tool:false` |
+| Codex 里 MCP 工具全部不可见 | 模型目录 `supports_search_tool:true` + `tool_mode:null`（DeepSeek 的 Responses API 不提供 `tool_search`，Codex 因此把 MCP 工具全部延迟隐藏） | 改目录为 `supports_search_tool:false`；DeepSeek 内置预设自 3.20.2 起已声明 false，存量卡**切走再切回**刷新 catalog 即恢复 |
 | Codex 远程 MCP 带静态头不生效 | 配置键写成了 `headers` | Codex 用 `http_headers`（Claude Desktop JSON 才用 `headers`） |
 | DashScope 等远程 MCP 原生连接 403 | 网关拦截特定客户端（TLS/UA 指纹） | 走 `npx -y mcp-remote <url>` 桥接 |
 | Codex 无法连 SSE 端点 | Codex 不支持 SSE 传输 | `npx -y mcp-remote <url> --transport sse-only` 桥接 |
@@ -30,3 +30,7 @@
 | Codex 0.149 切换被拒（空卡/无凭据卡） | 无 `[model_providers.*]` 表或无自有密钥、`requires_openai_auth=true` 无凭据、裸顶层 `openai_base_url` | 用 `check --strict` 检测，`repair --mode codex-0149` 自动迁移可修形态；空卡/无凭据需补 `[model_providers.<id>]` 表或 API 密钥 |
 | 密钥位置变化：现在在 provider 表而非 auth.json | 3.20.1 config-only 切换 | `[model_providers.*]` 内 `experimental_bearer_token` 为正常形态；`auth.json` 仅官方登录；`extract_common_config` 会自动剥离该字段，不入模板 |
 | 按 3.20.1 config-only 迁移（删 auth.json）后 Codex 回默认登录页 | 桌面版/部分构建以 `~/.codex/auth.json` 是否存在判定登录态；删掉后即使 `config.toml` 有 `experimental_bearer_token` 也无效（手动注释掉等同未生效） | 恢复/保留 `auth.json`（`OPENAI_API_KEY`）；`~/.cc-switch/settings.json` 设 `preserveCodexOfficialAuthOnSwitch=true`；live config 中的 token 可保留或注释，DB 模板仍按 3.20.1 形态保存 |
+| 代理托管 OAuth 卡（xAI OAuth / GitHub Copilot）切换被拒 | 这类卡本身无密钥（本地代理逐请求注入令牌），而卡上仍带 0.149 之前模板的 `requires_openai_auth = true`，v3.20.1 的无密钥安全闸把它当成“会回落到官方登录” | 3.20.2 起对 `providers.meta.provider_type` = `xai_oauth` / `github_copilot` 的活跃表强制 `requires_openai_auth = false`（预设源头同步，存量卡下次切换自愈）；本技能 `check --strict` 会点名该标志，`repair --target provider --mode codex-0149 --apply` 可提前改 false；**Codex OAuth 不适用**（官方登录即其凭据） |
+| 接管后 Codex 停在登录屏（旧版） | 直切第三方删掉了 `~/.codex/auth.json`，而卡上仍是 0.149 之前的 `requires_openai_auth = true` | 3.20.2 已修：接管按 Codex 会观察到的登录状态覆盖该标志（`file` 跟随 auth.json、`ephemeral` 记未登录、`keyring`/`auto` 保留原值、auth.json 缺失/损坏视为未登录且不再写入失败）；旧版可手动改 false 或打开保留开关 |
+| catalog 类修复看不到效果 | catalog 只在**切换供应商**时重建 | 在受影响的卡上切走再切回一次即可（DeepSeek MCP 可见性、`supports_parallel_tool_calls` 回填、视觉模态、`glm-5.3` 纯文本均属此类） |
+| 重新导入预设才算生效（例：GLM 直连报 400 unknown variant custom） | 预设改动只影响**新建**供应商，存量卡保存的是创建时的快照 | 按需重新导入该预设（智谱 GLM 自 3.20.2 起改指官方 Responses 端点 `/api/v1`）；例外：PPIO、JieKou、Novita 的模型列表地址按卡片 Base URL 反查，存量卡无需改动 |

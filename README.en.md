@@ -14,11 +14,11 @@ The package is self-contained: no installer script, no external helper dependenc
 If this skill helps you, please give it a ⭐.
 
 > [!WARNING]
-> **Known CC Switch 3.20.0/3.20.1 manual-edit bug (not fixed in 3.20.1, #6719)**: saving the Codex provider page in CC Switch — even without changing anything — can reorder `~/.codex/config.toml`, strip common-config blocks, misplace markers, and even serialize a url-only remote MCP as `type="stdio"` + `command=""`; the "extract common config" flow is affected too (upstream issue [#6719](https://github.com/farion1231/cc-switch/issues/6719)).
+> **Known CC Switch 3.20.0–3.20.2 manual-edit bug (not fixed as of 3.20.2, #6719)**: saving the Codex provider page in CC Switch — even without changing anything — can reorder `~/.codex/config.toml`, strip common-config blocks, misplace markers, and even serialize a url-only remote MCP as `type="stdio"` + `command=""`; the "extract common config" flow is affected too (upstream issue [#6719](https://github.com/farion1231/cc-switch/issues/6719)).
 > **Recommendation**: do not use the CC Switch edit page to maintain Codex provider/common config. Use this skill's commands instead (`check --strict`, `doctor --audit`, `repair`, `common-config`, `provider-block`, ...).
 
 > [!WARNING]
-> **Codex desktop app requires `~/.codex/auth.json`**: CC Switch 3.20.1 switches Codex third-party providers config-only (key goes into `[model_providers.*]` as `experimental_bearer_token`), but some Codex builds (especially the desktop app) decide login state by the *presence* of `auth.json` — writing the token and deleting `auth.json` can send Codex back to the default login screen. Keep `auth.json`, and enable “Preserve official Codex auth on switch” (`preserveCodexOfficialAuthOnSwitch=true`) in CCS settings.
+> **Codex desktop app requires `~/.codex/auth.json`**: CC Switch 3.20.1+ switches Codex third-party providers config-only (key goes into `[model_providers.*]` as `experimental_bearer_token`), but some Codex builds (especially the desktop app) decide login state by the *presence* of `auth.json` — writing the token and deleting `auth.json` can send Codex back to the default login screen. 3.20.2 fixed only the **takeover** path; a **direct** third-party switch still deletes `auth.json`. Keep `auth.json`, and enable “Preserve official Codex auth on switch” (`preserveCodexOfficialAuthOnSwitch=true`) in CCS settings.
 
 ## Why this skill?
 
@@ -36,7 +36,8 @@ This skill turns safe maintenance into one repeatable workflow:
 
 ## Compatibility
 
-- Designed and tested with **CC Switch 3.20.1** (database schema v18); CC Switch 3.20.0 (schema v17) remains compatible.
+- Designed and tested with **CC Switch 3.20.2** (database schema v18; 3.20.2 ships no database migration); CC Switch 3.20.1 (schema v18) and 3.20.0 (schema v17) remain compatible.
+- Proxy-managed OAuth cards (xAI OAuth / GitHub Copilot) are forced to `requires_openai_auth = false` by CCS 3.20.2 (the local proxy injects the token); existing cards self-heal on the next switch, `check --strict` flags the wrong value, and `repair --mode codex-0149` fixes it early.
 - Run `python scripts/ccs_db.py doctor` to check your installed version and schema before operating.
 - Other versions may behave differently; see `references/migration.md` for official version behavior changes.
 

@@ -17,13 +17,15 @@ Subcommands:
   set-flags       toggle enabled_* flags without touching other fields
   check           scan for likely mojibake '?' in text/JSON/TOML fields
   check --strict  also run structural safety checks (MCP semantics, markers,
-                  header order, live-only sections)
+                  header order, live-only sections, Codex 0.149 shapes;
+                  proxy-managed OAuth cards are judged by the 3.20.2 flag rule)
   doctor          print resolved paths, schema, and per-app provider status
   doctor --audit  read-only three-way consistency audit
   doctor --compare-backup <db>  diff current DB against a backup
   snapshot        save a point-in-time snapshot (DB + config.toml + settings)
   diff            show changes since a snapshot
   repair          dry-run/apply fixes for header order / live-only sections
+                  (codex-0149 also flips requires_openai_auth on proxy OAuth cards)
   common-config   get/set/check/extract/set-key/remove-key/status/enable/disable
 
 Safety model:
@@ -326,7 +328,22 @@ def cmd_provider_block(args):
             action = "APPENDED"
     obj["config"] = "".join(lines)
     if getattr(args, "check_semantics", False):
-        issues = find_header_issues("".join(lines), is_provider_config=True)
+        try:
+            prow = cur.execute(
+                "SELECT category, meta FROM providers WHERE id=?", (provider_id,)
+            ).fetchone()
+        except sqlite3.OperationalError:
+            prow = None
+        try:
+            pmeta = json.loads(prow["meta"] or "{}") if prow else {}
+        except Exception:
+            pmeta = {}
+        issues = find_header_issues(
+            "".join(lines),
+            is_provider_config=True,
+            is_official=bool(prow and prow["category"] == "official"),
+            provider_type=pmeta.get("provider_type"),
+        )
         if issues:
             print("[CHECK-SEMANTICS] issues in resulting provider config:")
             for iss in issues[:30]:
@@ -635,6 +652,10 @@ TOP_LEVEL_ONLY_KEYS = (
 
 CODEX_LEGACY_RESERVED_IDS = {"openai", "ollama", "lmstudio"}
 CODEX_RESERVED_BEDROCK_ID = "amazon-bedrock-runtime"
+# CC Switch 3.20.2 forces requires_openai_auth=false on providers whose token is
+# injected per request by the local proxy (xAI OAuth, GitHub Copilot). Codex
+# OAuth is deliberately excluded: the official login IS its credential.
+CODEX_PROXY_MANAGED_OAUTH_TYPES = {"xai_oauth", "github_copilot"}
 
 MARKER_TAGS = ("instructions", "hooks", "mcp")
 
@@ -718,6 +739,20 @@ def _body_map(body):
     return m
 
 
+def _rewrite_key_value(body, key, value):
+    """Rewrite `key = ...` lines inside a section body; returns (body, changed)."""
+    out = []
+    changed = False
+    for line in body:
+        s = line.strip()
+        if s and not s.startswith("#") and "=" in s and s.partition("=")[0].strip() == key:
+            out.append(f"{key} = {value}")
+            changed = True
+        else:
+            out.append(line)
+    return out, changed
+
+
 def mcp_semantic_issues(text):
     issues = []
     for header, path, _, body in parse_sections(text):
@@ -750,15 +785,20 @@ def top_level_key_issues(text):
     return issues
 
 
-def codex_0149_issues(text, is_official=False):
+def codex_0149_issues(text, is_official=False, provider_type=None):
     """Detect Codex CLI 0.149-rejected shapes in a provider config.
 
     Official-category providers legitimately have no [model_providers.*] table
     and may carry requires_openai_auth=true without own credentials, so they
     are skipped entirely.
+
+    Proxy-managed OAuth providers (xai_oauth / github_copilot) are keyless by
+    design, so a `requires_openai_auth = true` on them is reported as the wrong
+    flag value instead of "no own credentials" (CCS 3.20.2 forces it to false).
     """
     if is_official:
         return []
+    proxy_oauth = (provider_type or "").strip().lower() in CODEX_PROXY_MANAGED_OAUTH_TYPES
     issues = []
     sections = parse_sections(text)
     top = {}
@@ -798,9 +838,16 @@ def codex_0149_issues(text, is_official=False):
             issues.append(f"{header}: missing 'name' (Codex 0.149 rejects whole config)")
         has_own = any(k in m for k in ("experimental_bearer_token", "api_key", "apiKey"))
         if m.get("requires_openai_auth") == "true" and not has_own:
-            issues.append(
-                f"{header}: requires_openai_auth=true but no own credentials (switch will be refused)"
-            )
+            if proxy_oauth:
+                issues.append(
+                    f"{header}: requires_openai_auth=true on a proxy-managed OAuth card "
+                    f"(provider_type={provider_type}); the local proxy injects the token, so this must "
+                    "be false — run 'repair --target provider --mode codex-0149 --apply'"
+                )
+            else:
+                issues.append(
+                    f"{header}: requires_openai_auth=true but no own credentials (switch will be refused)"
+                )
     return issues
 
 
@@ -847,7 +894,7 @@ def live_only_issues(text):
     return issues
 
 
-def find_header_issues(text, is_provider_config=False, is_official=False):
+def find_header_issues(text, is_provider_config=False, is_official=False, provider_type=None):
     issues = []
     issues += marker_issues(text)
     issues += mcp_semantic_issues(text)
@@ -855,7 +902,7 @@ def find_header_issues(text, is_provider_config=False, is_official=False):
     issues += header_order_issues(text)
     if is_provider_config:
         issues += live_only_issues(text)
-        issues += codex_0149_issues(text, is_official=is_official)
+        issues += codex_0149_issues(text, is_official=is_official, provider_type=provider_type)
     return issues
 
 
@@ -965,18 +1012,24 @@ def strip_live_only_sections(text):
     return _join_sections(kept), removed
 
 
-def repair_codex_0149(text):
+def repair_codex_0149(text, provider_type=None):
     """Migrate Codex CLI 0.149-rejected shapes in a provider config.
 
     - Renames legacy reserved tables ([model_providers.openai|ollama|lmstudio]).
     - Backfills missing `name` (except amazon-bedrock-runtime).
     - Migrates top-level openai_base_url + experimental_bearer_token into a
       proper [model_providers.cc-switch] table when a key is present.
+    - Sets requires_openai_auth=false on the active provider table of a
+      proxy-managed OAuth card (xai_oauth / github_copilot), matching CCS 3.20.2.
     Empty/keyless shapes are only reported, not auto-created.
     """
     sections = parse_sections(text)
     top_idx = next((n for n, s in enumerate(sections) if s[0] is None), None)
     top = _body_map(sections[top_idx][3]) if top_idx is not None else {}
+    proxy_oauth = (provider_type or "").strip().lower() in CODEX_PROXY_MANAGED_OAUTH_TYPES
+    active_pid = None
+    if top.get("model_provider"):
+        active_pid = top["model_provider"].strip().strip('"').strip("'")
     changes = []
     new_sections = []
 
@@ -1000,6 +1053,17 @@ def repair_codex_0149(text):
             if "name" not in m and new_path[1] != CODEX_RESERVED_BEDROCK_ID:
                 body = list(body) + [f'name = "{new_path[1]}"']
                 changes.append(f"backfilled name for {new_header}")
+            if (
+                proxy_oauth
+                and m.get("requires_openai_auth") == "true"
+                and (active_pid is None or pid == active_pid)
+            ):
+                body, flag_changed = _rewrite_key_value(body, "requires_openai_auth", "false")
+                if flag_changed:
+                    changes.append(
+                        f"set requires_openai_auth=false for proxy-managed OAuth card "
+                        f"(provider_type={provider_type}) in {new_header}"
+                    )
             new_sections.append([new_header, new_path, i, body])
         else:
             new_sections.append([header, path, i, body])
@@ -1128,19 +1192,31 @@ def collect_structural_issues(cc_home, db_path, targets=("providers", "config", 
         con = connect(db_path)
         cur = con.cursor()
         if "providers" in targets:
-            for r in cur.execute(
-                "SELECT id, app_type, name, category, settings_config FROM providers"
-            ):
+            try:
+                rows = cur.execute(
+                    "SELECT id, app_type, name, category, meta, settings_config FROM providers"
+                ).fetchall()
+            except sqlite3.OperationalError:
+                # Older/trimmed schemas may lack `meta`; fall back without it.
+                rows = cur.execute(
+                    "SELECT id, app_type, name, category, settings_config FROM providers"
+                ).fetchall()
+            for r in rows:
                 try:
                     obj = json.loads(r["settings_config"] or "{}")
                 except Exception:
                     continue
                 cfg = obj.get("config")
                 if isinstance(cfg, str) and cfg.strip():
+                    try:
+                        meta = json.loads(r["meta"] or "{}")
+                    except Exception:
+                        meta = {}
                     for iss in find_header_issues(
                         cfg,
                         is_provider_config=(r["app_type"] == "codex"),
                         is_official=(r["category"] == "official"),
+                        provider_type=meta.get("provider_type"),
                     ):
                         issues.append(f"provider[{r['name']}]: {iss}")
         if "common" in targets:
@@ -1456,11 +1532,15 @@ def cmd_repair(args):
                 con, cc_home, args.app_type, None
             )
             row = con.execute(
-                "SELECT settings_config FROM providers WHERE id=?", (provider_id,)
+                "SELECT settings_config, meta FROM providers WHERE id=?", (provider_id,)
             ).fetchone()
             if not row:
                 raise SystemExit(f"provider not found: {provider_id}")
             obj = json.loads(row["settings_config"])
+            try:
+                pmeta = json.loads(row["meta"] or "{}")
+            except Exception:
+                pmeta = {}
             cfg = obj.get("config", "")
             new_cfg = cfg
             moved = []
@@ -1471,7 +1551,7 @@ def cmd_repair(args):
             if mode in ("live-only", "both"):
                 new_cfg, removed = strip_live_only_sections(new_cfg)
             if mode in ("codex-0149", "both"):
-                new_cfg, c149 = repair_codex_0149(new_cfg)
+                new_cfg, c149 = repair_codex_0149(new_cfg, provider_type=pmeta.get("provider_type"))
             changed = new_cfg != cfg
             print(f"[{'APPLY' if apply else 'DRY-RUN'}] provider {provider_id} changed={changed}")
             if moved:
