@@ -1,23 +1,19 @@
-# v1.1.4 增量更新
+# v1.1.5 增量更新
 
-## 对齐 CC Switch 3.20.2（2026-09-07）
+## 对齐 CC Switch 3.20.3（2026-09-11）
 
-- **基线升级**：以 CC Switch **3.20.2** 为验证基线（schema v18；**本版无数据库迁移**）；3.20.1（schema v18）与 3.20.0（schema v17）继续兼容。
-- **`requires_openai_auth` 新矩阵**：代理托管 OAuth 卡（`providers.meta.provider_type` = `xai_oauth` / `github_copilot`）的活跃表必须为 `false`（令牌由本地代理逐请求注入），**Codex OAuth 例外**（官方登录即其凭据）。
-  - `check --strict` 不再把这类卡误报为 “switch will be refused”，改为点名错误的标志值；
-  - `repair --target provider --mode codex-0149 --apply` 会提前把该标志改成 `false`（与 CCS 3.20.2“下次切换自愈”一致）；普通无凭据卡仍只提示、不自动改；
-  - 顺带修复：`provider-block --check-semantics` 不再把官方卡误判为“空第三方卡”。
-- **桌面版 `auth.json` 警告更新**：3.20.2 只修了**接管**路径（接管按 Codex 观察到的登录状态覆盖该标志）；**直切**第三方在“保留官方登录”关闭时仍会删除 `auth.json` → 桌面版继续保留 `auth.json` 并打开 `preserveCodexOfficialAuthOnSwitch=true`。
-- **catalog 修复需“切走再切回”**：DeepSeek 的 MCP 可见性（`supports_search_tool=false`）、`supports_parallel_tool_calls` 回填、未知型号视觉模态、`glm-5.3` 纯文本均在切换供应商重建 catalog 后才生效。
-- **预设改动只影响新建卡**：智谱 GLM 改指官方 Responses 端点 `/api/v1`（存量卡需重新导入）；`grok-4.5` 的 `xhigh`、腾讯 Pi 思考控制、`minimax-m2.5` 移除同理；PPIO / JieKou / Novita 的模型列表地址按卡片 Base URL 反查，存量卡免改。
-- **#6719 仍未修复**：编辑页零改动保存破坏 Codex 配置的缺陷不在 3.20.2 修复列表内，警告对 3.20.0–3.20.2 继续有效。
-- 回归测试：新增 3 条用例（代理 OAuth 标志检测/修复、普通卡不改标志、官方卡 `--check-semantics` 不误报），共 **42** 条全部通过。
+- **基线升级**：以 CC Switch **3.20.3** 为验证基线（schema 仍为 v18，**本版无数据库迁移**）；3.20.1–3.20.2（schema v18）与 3.20.0（schema v17）继续兼容。
+- **修复 `repair --mode codex-0149` 的迁移产物**：此前迁移顶层 `openai_base_url` 时只建表，没有改写 `model_provider`、也没有写 `wire_api`，迁移出的表实际不参与路由（`check --strict` 还会误报已修好）。现在迁移结果与 CC Switch 3.20.3 自身的规范化完全一致：`model_provider = <新 id>` + `[model_providers.cc-switch(-N)]`（`name` / `base_url` / `wire_api = "responses"` / `experimental_bearer_token`）。用户已存在的 `cc-switch` 表不会被覆盖，顺延 `cc-switch-2`…；活跃路由的保留表改名后，`model_provider` 会跟着改名。
+- **收敛 `check --strict` 的误报**：顶层 `openai_base_url` 只在该键真正改路由（选择器缺省或 `openai`）时报告；选择器指向自带表的惰性残留不再误报，也不会被错误迁移。
+- **补上 `check --strict` 的漏报**：`model_provider` 指向缺失的 `[model_providers.<id>]` 表会被点名——该形态下顶层 token 不被 Codex 0.149 读取，路由会回落到内置 openai/auth.json。
+- **识别内联 `model_providers = { ... }`**：不再被误判为“空第三方卡”；单行内联表可就地完成迁移，多行内联表只提示、不写坏 TOML。
+- **3.20.3 升级要点已写入文档**：Codex 缺 `model_provider` 的卡在接管时改走本地代理；统一供应商同步不再清空子卡设置（旧版已清掉的用量脚本/通用配置勾选/端点自动选择/排序需重填一次，可用 `common-config status` 复核）；每应用代理重试/超时串写已停止但旧值不恢复；Kimi 两条 Codex 预设改原生 Responses；DeepSeek `deepseek-flash` 目录新增视觉支持（切走再切回生效）；Claude Code 新增“禁用 Artifact 工具”开关。**#6719 编辑页缺陷在 3.20.3 仍未修复**，警告覆盖 3.20.0–3.20.3。
 
 ## 更新安装方法
 
 ### Codex
 1. 退出 Codex
-2. 用本 zip 解压出的 `CCSwitch-operations/` **替换** `~/.codex/skills/CCSwitch-operations/`（直接覆盖旧版）
+2. 用本 zip 解压出的 `CCSwitch-operations/` 替换 `~/.codex/skills/CCSwitch-operations/`（直接覆盖旧版）
 3. 重新打开 Codex 并新开会话
 
 ### Claude Code / 其他 SKILL.md agent
@@ -35,14 +31,14 @@ python scripts/ccs_db.py doctor --audit
 
 ---
 
-## v1.1.4 Incremental (English)
+## v1.1.5 Incremental (English)
 
-- Aligned with **CC Switch 3.20.2** (schema v18; no database migration in this release); 3.20.1 (v18) and 3.20.0 (v17) remain compatible.
-- **`requires_openai_auth` matrix**: proxy-managed OAuth cards (`meta.provider_type` = `xai_oauth` / `github_copilot`) must use `false` — the local proxy injects the token per request; Codex OAuth is excluded because the official login is its credential. `check --strict` now names the wrong value instead of reporting "no own credentials", and `repair --mode codex-0149 --apply` fixes it early. `provider-block --check-semantics` no longer misjudges official cards as empty third-party cards.
-- **Desktop `auth.json` warning updated**: 3.20.2 fixed only the takeover path; a direct third-party switch still deletes `auth.json`, so keep the file and enable “Preserve official Codex auth on switch”.
-- **Catalog fixes apply after switching away and back**: DeepSeek MCP visibility, `supports_parallel_tool_calls` backfill, vision modality, `glm-5.3` plain text.
-- **Preset changes only affect newly created providers** — re-import the GLM preset to get the official Responses endpoint `/api/v1`; PPIO / JieKou / Novita model-list URLs are resolved from the card's base URL, so existing cards need no change.
-- **#6719** (edit-page config mangling) is still not in the 3.20.2 fix list.
+- Aligned with **CC Switch 3.20.3** (schema stays v18; no database migration); 3.20.1–3.20.2 (v18) and 3.20.0 (v17) remain compatible.
+- **Fixed the `repair --mode codex-0149` migration output**: it used to create the table without rewriting `model_provider` or writing `wire_api`, so the migrated table never carried the route (`check --strict` even reported the config as clean). The result now matches CC Switch 3.20.3's own normalization: `model_provider = <new id>` plus `[model_providers.cc-switch(-N)]` with `name`, `base_url`, `wire_api = "responses"` and `experimental_bearer_token`. An existing user-authored `cc-switch` table is preserved (the next free `cc-switch-2`… id is used), and a renamed reserved table follows with `model_provider`.
+- **Fewer false positives in `check --strict`**: a top-level `openai_base_url` is only reported when it actually reroutes (selector absent or `openai`); inert leftovers on custom-routed cards are left alone.
+- **New detection in `check --strict`**: a `model_provider` selector whose `[model_providers.<id>]` table is missing is flagged — top-level tokens are ignored by Codex 0.149 there, so the route falls back to the built-in openai/auth.json path.
+- **Inline `model_providers = { ... }` is recognized**: no more "empty third-party card" false positive; single-line inline tables are migrated in place, multi-line ones are reported instead of producing broken TOML.
+- **3.20.3 upgrade notes are documented**: cards without `model_provider` route through the local proxy under takeover; universal-provider sync keeps child settings, but anything an earlier sync erased must be re-entered (check `common-config status`); the per-app proxy retry/timeout cross-write is stopped but old values are not restored; Kimi's two Codex presets moved to native Responses; DeepSeek's `deepseek-flash` catalog entry gained vision (switch away and back); Claude Code has a new "disable Artifact tool" toggle. **#6719 is still unfixed in 3.20.3**, so the warning now covers 3.20.0–3.20.3.
 
 ### Update / Install
 

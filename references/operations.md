@@ -203,10 +203,11 @@ python scripts/ccs_db.py provider-block --app-type codex \
 
 `check --strict` 也会检测**顶层键被挪进表内**（如 `notify = [...]` 出现在某个 `[table]` 之后/内部）；`repair --mode header-order` 会自动把这类顶层键移回 preamble（所有 `[table]` 之前）。
 
-### Codex 0.149 config-only 兼容（3.20.1+，含 3.20.2 的 flag 规则）
+### Codex 0.149 config-only 兼容（3.20.1+，含 3.20.2 flag 规则与 3.20.3 路由语义）
 
 ```bash
-# 检测 0.149 拒绝形态（遗留保留表 / 缺 name / 顶层 openai_base_url / 空卡 / 无凭据 requires_openai_auth）
+# 检测 0.149 拒绝/误路由形态（遗留保留表 / 缺 name / 真正生效的顶层 openai_base_url /
+# 选择器指向缺失的表 / 空卡 / 无凭据 requires_openai_auth；内联 model_providers 会被识别）
 python scripts/ccs_db.py check --strict
 
 # 自动迁移（默认 dry-run，--apply 写入并自动备份）
@@ -215,7 +216,18 @@ python scripts/ccs_db.py repair --target provider --app-type codex --mode codex-
 python scripts/ccs_db.py repair --target config.toml --mode codex-0149 --apply
 ```
 
-说明：`codex-0149` 会改名遗留保留表、回填缺失的 `name`、把带密钥的顶层 `openai_base_url` 迁移为 `[model_providers.cc-switch]`；对代理托管 OAuth 卡（`providers.meta.provider_type` = `xai_oauth` / `github_copilot`）还会把活跃表上的 `requires_openai_auth` 改为 `false`（与 CCS 3.20.2 一致）。空卡/无凭据的普通第三方卡仍然只提示，不会自动造表。
+说明：`codex-0149` 会改名遗留保留表（活跃路由且自带密钥时同步改写 `model_provider`）、回填缺失的 `name`、把选择器缺省/`openai` 时真正生效的顶层 `openai_base_url` 迁移为 `[model_providers.cc-switch(-N)]`，并写入 `model_provider` + `wire_api = "responses"` + `base_url` + `experimental_bearer_token`——与 CCS 3.20.3 自身的规范化形态一致；用户已有的 `cc-switch` 表不会被覆盖（顺延 `cc-switch-2`…）。单行内联 `model_providers = { ... }` 会就地扩展，多行内联表只提示、不写坏 TOML。选择器指向自带表时，顶层 `openai_base_url` 是惰性残留，保持原样。对代理托管 OAuth 卡（`providers.meta.provider_type` = `xai_oauth` / `github_copilot`）还会把活跃表上的 `requires_openai_auth` 改为 `false`（与 CCS 3.20.2 一致）。空卡/无凭据/缺表的普通第三方卡仍然只提示，不会自动造表。
+
+### CC Switch 3.20.3 升级后复核
+
+```bash
+python scripts/ccs_db.py doctor --audit
+python scripts/ccs_db.py check --strict
+python scripts/ccs_db.py common-config status --app-type codex    # 旧版统一同步可能抹掉勾选
+python scripts/ccs_db.py repair --target provider --app-type codex --mode codex-0149   # dry-run：旧 openai_base_url 误路由
+```
+
+另外到 CCS 的代理设置里逐应用复核重试/超时（3.20.3 之前会被 Claude 串写覆盖，旧值不会自动恢复）；Kimi 卡想走原生 Responses 需改“上游格式”或重新导入预设，DeepSeek 视觉目录需切走再切回。
 
 ```bash
 # 代理托管 OAuth 卡：检查标志 + 修正（Codex OAuth 卡不适用，其官方登录即凭据）

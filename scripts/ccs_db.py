@@ -17,15 +17,19 @@ Subcommands:
   set-flags       toggle enabled_* flags without touching other fields
   check           scan for likely mojibake '?' in text/JSON/TOML fields
   check --strict  also run structural safety checks (MCP semantics, markers,
-                  header order, live-only sections, Codex 0.149 shapes;
-                  proxy-managed OAuth cards are judged by the 3.20.2 flag rule)
+                  header order, live-only sections, Codex 0.149 routing shapes
+                  (top-level openai_base_url reroutes, selector tables that are
+                  missing, inline model_providers); proxy-managed OAuth cards
+                  are judged by the 3.20.2 flag rule)
   doctor          print resolved paths, schema, and per-app provider status
   doctor --audit  read-only three-way consistency audit
   doctor --compare-backup <db>  diff current DB against a backup
   snapshot        save a point-in-time snapshot (DB + config.toml + settings)
   diff            show changes since a snapshot
   repair          dry-run/apply fixes for header order / live-only sections
-                  (codex-0149 also flips requires_openai_auth on proxy OAuth cards)
+                  (codex-0149 also rewrites legacy openai_base_url reroutes into
+                  a routable provider table and flips requires_openai_auth on
+                  proxy OAuth cards)
   common-config   get/set/check/extract/set-key/remove-key/status/enable/disable
 
 Safety model:
@@ -652,6 +656,18 @@ TOP_LEVEL_ONLY_KEYS = (
 
 CODEX_LEGACY_RESERVED_IDS = {"openai", "ollama", "lmstudio"}
 CODEX_RESERVED_BEDROCK_ID = "amazon-bedrock-runtime"
+# Codex 0.148/0.149 built-in provider ids (upstream
+# `CODEX_RESERVED_MODEL_PROVIDER_IDS`, case-sensitive). A `model_provider`
+# selector outside this set must have its own `[model_providers.<id>]` table,
+# otherwise the key has no provider-scoped slot: Codex 0.149 ignores top-level
+# tokens and falls back to the built-in openai route / auth.json.
+CODEX_RESERVED_BUILTIN_IDS = {
+    "amazon-bedrock",
+    "amazon-bedrock-runtime",
+    "openai",
+    "ollama",
+    "lmstudio",
+}
 # CC Switch 3.20.2 forces requires_openai_auth=false on providers whose token is
 # injected per request by the local proxy (xAI OAuth, GitHub Copilot). Codex
 # OAuth is deliberately excluded: the official login IS its credential.
@@ -785,8 +801,67 @@ def top_level_key_issues(text):
     return issues
 
 
+def _active_provider_id(top):
+    """`model_provider` selector as a plain id, or None when unset."""
+    raw = top.get("model_provider")
+    if raw is None:
+        return None
+    pid = raw.strip().strip('"').strip("'")
+    return pid or None
+
+
+def _parsed_model_providers(text):
+    """Return {id: table-dict} for the `model_providers` table.
+
+    Uses the TOML parser so inline declarations
+    (`model_providers = { id = { ... } }`) are seen too; returns {} when the
+    text is not valid TOML (the line-based section view still covers the
+    structural checks).
+    """
+    try:
+        data = tomllib.loads(text)
+    except Exception:
+        return {}
+    providers = data.get("model_providers")
+    return providers if isinstance(providers, dict) else {}
+
+
+def _table_has_own_key(entry):
+    return any(k in entry for k in ("experimental_bearer_token", "api_key", "apiKey"))
+
+
+def _table_flag_true(entry):
+    value = entry.get("requires_openai_auth")
+    if value is True:
+        return True
+    return isinstance(value, str) and value.strip().strip('"').lower() == "true"
+
+
+def _table_shape_issues(header, pid, entry, proxy_oauth, provider_type):
+    """Per-provider-table rules shared by section tables and inline tables."""
+    issues = []
+    if pid in CODEX_LEGACY_RESERVED_IDS:
+        issues.append(
+            f"{header}: legacy reserved provider id '{pid}' must be renamed (Codex 0.149 rejects)"
+        )
+    if "name" not in entry and pid != CODEX_RESERVED_BEDROCK_ID:
+        issues.append(f"{header}: missing 'name' (Codex 0.149 rejects whole config)")
+    if _table_flag_true(entry) and not _table_has_own_key(entry):
+        if proxy_oauth:
+            issues.append(
+                f"{header}: requires_openai_auth=true on a proxy-managed OAuth card "
+                f"(provider_type={provider_type}); the local proxy injects the token, so this must "
+                "be false — run 'repair --target provider --mode codex-0149 --apply'"
+            )
+        else:
+            issues.append(
+                f"{header}: requires_openai_auth=true but no own credentials (switch will be refused)"
+            )
+    return issues
+
+
 def codex_0149_issues(text, is_official=False, provider_type=None):
-    """Detect Codex CLI 0.149-rejected shapes in a provider config.
+    """Detect Codex CLI 0.149-rejected or mis-routed shapes in a provider config.
 
     Official-category providers legitimately have no [model_providers.*] table
     and may carry requires_openai_auth=true without own credentials, so they
@@ -795,6 +870,14 @@ def codex_0149_issues(text, is_official=False, provider_type=None):
     Proxy-managed OAuth providers (xai_oauth / github_copilot) are keyless by
     design, so a `requires_openai_auth = true` on them is reported as the wrong
     flag value instead of "no own credentials" (CCS 3.20.2 forces it to false).
+
+    Routing rules mirror CC Switch 3.20.3 / Codex 0.149:
+    - a top-level `openai_base_url` only reroutes the built-in `openai`
+      provider (selector absent or exactly "openai"); the top-level token is
+      ignored by 0.149, so the pair must move into a provider table;
+    - a custom selector whose `[model_providers.<id>]` table is missing has no
+      provider-scoped slot for the key either, so the route silently falls
+      back to the built-in openai/auth.json path.
     """
     if is_official:
         return []
@@ -806,48 +889,59 @@ def codex_0149_issues(text, is_official=False, provider_type=None):
         if path is None:
             top = _body_map(body)
 
-    if "openai_base_url" in top:
-        issues.append(
-            "top-level openai_base_url legacy reroute must be migrated "
-            "to [model_providers.cc-switch]"
-        )
-
+    selector = _active_provider_id(top)
     provider_tables = [
         (header, path, body)
         for header, path, _, body in sections
         if path and path[0] == "model_providers" and len(path) >= 2
     ]
-    if not provider_tables:
-        has_key = any(
-            k in top for k in ("experimental_bearer_token", "api_key", "apiKey", "OPENAI_API_KEY")
+    section_ids = {path[1] for _, path, _ in provider_tables}
+    parsed_tables = _parsed_model_providers(text)
+    provider_ids = section_ids | set(parsed_tables)
+
+    if "openai_base_url" in top and (selector is None or selector == "openai"):
+        if "experimental_bearer_token" in top:
+            issues.append(
+                "top-level openai_base_url legacy reroute must be migrated to a "
+                "routable provider table (model_provider + wire_api=responses + "
+                "base_url + experimental_bearer_token): Codex 0.149 ignores the "
+                "top-level token — run 'repair --target provider --mode codex-0149 --apply'"
+            )
+        else:
+            issues.append(
+                "top-level openai_base_url legacy reroute has no own key; not "
+                "auto-migrated (add a [model_providers.*] table with a key)"
+            )
+
+    if (
+        selector is not None
+        and selector not in CODEX_RESERVED_BUILTIN_IDS
+        and selector not in provider_ids
+    ):
+        issues.append(
+            f'model_provider = "{selector}" but [model_providers.{selector}] table is '
+            "missing: Codex 0.149 has no provider-scoped slot for the key (top-level "
+            "tokens are ignored and the route falls back to the built-in "
+            "openai/auth.json) — add the table (base_url + experimental_bearer_token) "
+            "or fix the selector"
         )
-        if not has_key:
+
+    if not provider_ids:
+        has_key = _table_has_own_key(top) or "OPENAI_API_KEY" in top
+        if not has_key and (selector is None or selector in CODEX_RESERVED_BUILTIN_IDS):
             issues.append(
                 "empty third-party card: no [model_providers.*] table and no own key "
                 "(Codex 0.149 switch will refuse)"
             )
 
     for header, path, body in provider_tables:
-        pid = path[1]
-        m = _body_map(body)
-        if pid in CODEX_LEGACY_RESERVED_IDS:
-            issues.append(
-                f"{header}: legacy reserved provider id '{pid}' must be renamed (Codex 0.149 rejects)"
-            )
-        if "name" not in m and pid != CODEX_RESERVED_BEDROCK_ID:
-            issues.append(f"{header}: missing 'name' (Codex 0.149 rejects whole config)")
-        has_own = any(k in m for k in ("experimental_bearer_token", "api_key", "apiKey"))
-        if m.get("requires_openai_auth") == "true" and not has_own:
-            if proxy_oauth:
-                issues.append(
-                    f"{header}: requires_openai_auth=true on a proxy-managed OAuth card "
-                    f"(provider_type={provider_type}); the local proxy injects the token, so this must "
-                    "be false — run 'repair --target provider --mode codex-0149 --apply'"
-                )
-            else:
-                issues.append(
-                    f"{header}: requires_openai_auth=true but no own credentials (switch will be refused)"
-                )
+        issues += _table_shape_issues(header, path[1], _body_map(body), proxy_oauth, provider_type)
+    for pid, entry in parsed_tables.items():
+        if pid in section_ids or not isinstance(entry, dict):
+            continue
+        issues += _table_shape_issues(
+            f"[model_providers.{pid}] (inline)", pid, entry, proxy_oauth, provider_type
+        )
     return issues
 
 
@@ -1012,88 +1106,240 @@ def strip_live_only_sections(text):
     return _join_sections(kept), removed
 
 
-def repair_codex_0149(text, provider_type=None):
-    """Migrate Codex CLI 0.149-rejected shapes in a provider config.
+def _first_free_provider_id(preferred, existing_ids):
+    """First free `<preferred>` / `<preferred>-2` / ... id (never overwrites a
+    user-authored provider table)."""
+    candidate = preferred
+    suffix = 2
+    while candidate in existing_ids:
+        candidate = f"{preferred}-{suffix}"
+        suffix += 1
+    return candidate
 
-    - Renames legacy reserved tables ([model_providers.openai|ollama|lmstudio]).
+
+def _set_top_level_key(body, key, raw_value):
+    """Replace or insert a top-level `key = raw_value` line."""
+    out = []
+    replaced = False
+    for line in body:
+        s = line.strip()
+        if s and not s.startswith("#") and "=" in s and s.partition("=")[0].strip() == key:
+            out.append(f"{key} = {raw_value}")
+            replaced = True
+        else:
+            out.append(line)
+    if replaced:
+        return out, True
+    insert_at = 0
+    for idx, line in enumerate(out):
+        s = line.strip()
+        if s and not s.startswith("#") and "=" in s and s.partition("=")[0].strip() == "model":
+            insert_at = idx + 1
+            break
+    out.insert(insert_at, f"{key} = {raw_value}")
+    return out, True
+
+
+def _drop_top_level_keys(body, keys):
+    return [line for line in body if not _is_top_key_line(line, keys)]
+
+
+def _insert_inline_provider_member(body, provider_id, table_lines):
+    """Insert `<id> = { ... }` into a single-line inline `model_providers` value.
+
+    Returns (body, ok). Multi-line inline tables (or lines carrying trailing
+    comments) return ok=False so the caller reports them instead of writing
+    broken TOML.
+    """
+    for idx, line in enumerate(body):
+        s = line.strip()
+        if not s or s.startswith("#") or "=" not in s:
+            continue
+        key, _, value = line.partition("=")
+        if key.strip() != "model_providers":
+            continue
+        value = value.strip()
+        if (
+            not value.startswith("{")
+            or not value.endswith("}")
+            or value.count("{") != value.count("}")
+        ):
+            return body, False
+        inner = value[1:-1].strip().rstrip(",").strip()
+        member = f"{provider_id} = {{ " + ", ".join(table_lines) + " }"
+        new_value = "{ " + (inner + ", " if inner else "") + member + " }"
+        new_body = list(body)
+        new_body[idx] = line[: line.index("=") + 1] + " " + new_value
+        return new_body, True
+    return body, False
+
+
+def _parsed_toml(text):
+    try:
+        data = tomllib.loads(text)
+    except Exception:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def repair_codex_0149(text, provider_type=None):
+    """Migrate Codex CLI 0.149-rejected or mis-routed shapes in a provider config.
+
+    - Renames legacy reserved tables ([model_providers.openai|ollama|lmstudio])
+      and follows the rename with `model_provider` when that table is the
+      active route and carries its own key (upstream migrator parity).
     - Backfills missing `name` (except amazon-bedrock-runtime).
-    - Migrates top-level openai_base_url + experimental_bearer_token into a
-      proper [model_providers.cc-switch] table when a key is present.
+    - Migrates a top-level openai_base_url reroute (selector absent or
+      `openai`) into the same shape CC Switch 3.20.3 writes: `model_provider =
+      <id>` plus a provider table with `wire_api = "responses"`, `base_url`
+      and the bearer token. A user-authored `cc-switch` table is never
+      overwritten (the next free `cc-switch-N` id is used); single-line inline
+      `model_providers = { ... }` declarations are extended in place.
     - Sets requires_openai_auth=false on the active provider table of a
       proxy-managed OAuth card (xai_oauth / github_copilot), matching CCS 3.20.2.
-    Empty/keyless shapes are only reported, not auto-created.
+
+    Keyless shapes and multi-line inline tables are only reported.
     """
     sections = parse_sections(text)
     top_idx = next((n for n, s in enumerate(sections) if s[0] is None), None)
     top = _body_map(sections[top_idx][3]) if top_idx is not None else {}
     proxy_oauth = (provider_type or "").strip().lower() in CODEX_PROXY_MANAGED_OAUTH_TYPES
-    active_pid = None
-    if top.get("model_provider"):
-        active_pid = top["model_provider"].strip().strip('"').strip("'")
+    active_pid = _active_provider_id(top)
+    inline_present = (
+        "model_providers" in top and top["model_providers"].lstrip().startswith("{")
+    )
+    original_section_ids = {
+        p[1] for _, p, _, _ in sections
+        if p and p[0] == "model_providers" and len(p) >= 2
+    }
+    parsed_ids = set(_parsed_model_providers(text))
+    inline_ids = parsed_ids - original_section_ids
+    known_ids = set(original_section_ids) | inline_ids
     changes = []
+    notes = []
     new_sections = []
+    follow_rename_pid = None
 
     for header, path, i, body in sections:
         if path is None:
-            body = [
-                line for line in body
-                if not _is_top_key_line(line, {"openai_base_url", "experimental_bearer_token"})
-            ]
-            new_sections.append([None, None, i, body])
-        elif path[0] == "model_providers" and len(path) >= 2:
-            pid = path[1]
-            new_header = header
-            new_path = path
-            if pid in CODEX_LEGACY_RESERVED_IDS:
-                new_pid = f"cc-switch-{pid}"
-                new_header = f"[model_providers.{new_pid}]"
-                new_path = ("model_providers", new_pid)
-                changes.append(f"renamed {header} -> {new_header}")
-            m = _body_map(body)
-            if "name" not in m and new_path[1] != CODEX_RESERVED_BEDROCK_ID:
-                body = list(body) + [f'name = "{new_path[1]}"']
-                changes.append(f"backfilled name for {new_header}")
-            if (
-                proxy_oauth
-                and m.get("requires_openai_auth") == "true"
-                and (active_pid is None or pid == active_pid)
-            ):
-                body, flag_changed = _rewrite_key_value(body, "requires_openai_auth", "false")
-                if flag_changed:
-                    changes.append(
-                        f"set requires_openai_auth=false for proxy-managed OAuth card "
-                        f"(provider_type={provider_type}) in {new_header}"
-                    )
-            new_sections.append([new_header, new_path, i, body])
-        else:
+            new_sections.append([None, None, i, list(body)])
+            continue
+        if path[0] != "model_providers" or len(path) < 2:
             new_sections.append([header, path, i, body])
+            continue
+        pid = path[1]
+        new_header = header
+        new_path = path
+        m = _body_map(body)
+        if pid in CODEX_LEGACY_RESERVED_IDS:
+            new_pid = _first_free_provider_id(f"cc-switch-{pid}", known_ids)
+            known_ids.add(new_pid)
+            new_header = f"[model_providers.{new_pid}]"
+            new_path = ("model_providers", new_pid)
+            changes.append(f"renamed {header} -> {new_header}")
+            is_active_route = active_pid == pid or (active_pid is None and pid == "openai")
+            if is_active_route and _table_has_own_key(m):
+                follow_rename_pid = new_pid
+        if "name" not in m and new_path[1] != CODEX_RESERVED_BEDROCK_ID:
+            body = list(body) + [f'name = "{new_path[1]}"']
+            changes.append(f"backfilled name for {new_header}")
+        if (
+            proxy_oauth
+            and m.get("requires_openai_auth") == "true"
+            and (active_pid is None or pid == active_pid)
+        ):
+            body, flag_changed = _rewrite_key_value(body, "requires_openai_auth", "false")
+            if flag_changed:
+                changes.append(
+                    f"set requires_openai_auth=false for proxy-managed OAuth card "
+                    f"(provider_type={provider_type}) in {new_header}"
+                )
+        new_sections.append([new_header, new_path, i, body])
 
-    if "openai_base_url" in top:
+    top_body = list(new_sections[top_idx][3]) if top_idx is not None else []
+    selector_after = follow_rename_pid or active_pid
+    if follow_rename_pid:
+        top_body, _ = _set_top_level_key(top_body, "model_provider", f'"{follow_rename_pid}"')
+        changes.append(f"model_provider follows renamed table -> {follow_rename_pid}")
+
+    if "openai_base_url" in top and (selector_after is None or selector_after == "openai"):
         token = top.get("experimental_bearer_token")
-        if token:
-            new_sections.append([
-                "[model_providers.cc-switch]",
-                ("model_providers", "cc-switch"),
-                0,
-                [
-                    'name = "CC Switch"',
-                    f"base_url = {top['openai_base_url']}",
-                    f"experimental_bearer_token = {token}",
-                ],
-            ])
-            changes.append(
-                "migrated top-level openai_base_url + experimental_bearer_token "
-                "-> [model_providers.cc-switch]"
-            )
-        else:
-            changes.append(
+        if not token:
+            notes.append(
                 "top-level openai_base_url has no own key; not auto-migrated "
                 "(add a key or a [model_providers.*] table)"
             )
+        else:
+            new_id = _first_free_provider_id("cc-switch", known_ids)
+            parsed_top = _parsed_toml(text)
+            parsed_base = parsed_top.get("openai_base_url")
+            parsed_token = parsed_top.get("experimental_bearer_token")
+            if isinstance(parsed_base, str) and isinstance(parsed_token, str):
+                base_line = "base_url = " + json.dumps(parsed_base, ensure_ascii=False)
+                token_line = "experimental_bearer_token = " + json.dumps(
+                    parsed_token, ensure_ascii=False
+                )
+            else:
+                base_line = f"base_url = {top['openai_base_url']}"
+                token_line = f"experimental_bearer_token = {token}"
+            new_table_lines = [
+                'name = "Custom"',
+                base_line,
+                'wire_api = "responses"',
+                token_line,
+            ]
+            if inline_present:
+                top_body, ok = _insert_inline_provider_member(top_body, new_id, new_table_lines)
+                if not ok:
+                    notes.append(
+                        "top-level openai_base_url reroute uses a multi-line inline "
+                        "model_providers table; not auto-migrated (rewrite it as "
+                        "[model_providers.<id>] tables)"
+                    )
+                else:
+                    top_body = _drop_top_level_keys(
+                        top_body, {"openai_base_url", "experimental_bearer_token"}
+                    )
+                    top_body, _ = _set_top_level_key(
+                        top_body, "model_provider", f'"{new_id}"'
+                    )
+                    changes.append(
+                        "migrated top-level openai_base_url + experimental_bearer_token "
+                        f"-> inline model_providers.{new_id} "
+                        f"(model_provider={new_id}, wire_api=responses)"
+                    )
+            else:
+                top_body = _drop_top_level_keys(
+                    top_body, {"openai_base_url", "experimental_bearer_token"}
+                )
+                top_body, _ = _set_top_level_key(top_body, "model_provider", f'"{new_id}"')
+                new_sections.append([
+                    f"[model_providers.{new_id}]",
+                    ("model_providers", new_id),
+                    0,
+                    new_table_lines,
+                ])
+                changes.append(
+                    "migrated top-level openai_base_url + experimental_bearer_token "
+                    f"-> [model_providers.{new_id}] "
+                    f"(model_provider={new_id}, wire_api=responses)"
+                )
+    elif "openai_base_url" in top:
+        notes.append(
+            f"top-level openai_base_url left unchanged: model_provider="
+            f"{selector_after or '(unset)'} routes through its own table "
+            "(the key only reroutes the built-in openai provider)"
+        )
+
+    if top_idx is None:
+        if top_body:
+            new_sections.insert(0, [None, None, 0, top_body])
+    else:
+        new_sections[top_idx][3] = top_body
 
     if not changes:
-        return text, []
-    return _join_sections(new_sections), changes
+        return text, notes
+    return _join_sections(new_sections), changes + notes
 
 
 def toml_to_map(text):

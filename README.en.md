@@ -14,7 +14,7 @@ The package is self-contained: no installer script, no external helper dependenc
 If this skill helps you, please give it a ⭐.
 
 > [!WARNING]
-> **Known CC Switch 3.20.0–3.20.2 manual-edit bug (not fixed as of 3.20.2, #6719)**: saving the Codex provider page in CC Switch — even without changing anything — can reorder `~/.codex/config.toml`, strip common-config blocks, misplace markers, and even serialize a url-only remote MCP as `type="stdio"` + `command=""`; the "extract common config" flow is affected too (upstream issue [#6719](https://github.com/farion1231/cc-switch/issues/6719)).
+> **Known CC Switch 3.20.0–3.20.3 manual-edit bug (not fixed as of 3.20.3, #6719)**: saving the Codex provider page in CC Switch — even without changing anything — can reorder `~/.codex/config.toml`, strip common-config blocks, misplace markers, and even serialize a url-only remote MCP as `type="stdio"` + `command=""`; the "extract common config" flow is affected too (upstream issue [#6719](https://github.com/farion1231/cc-switch/issues/6719) is still open; the 3.20.3 fix list does not include it).
 > **Recommendation**: do not use the CC Switch edit page to maintain Codex provider/common config. Use this skill's commands instead (`check --strict`, `doctor --audit`, `repair`, `common-config`, `provider-block`, ...).
 
 > [!WARNING]
@@ -36,7 +36,10 @@ This skill turns safe maintenance into one repeatable workflow:
 
 ## Compatibility
 
-- Designed and tested with **CC Switch 3.20.2** (database schema v18; 3.20.2 ships no database migration); CC Switch 3.20.1 (schema v18) and 3.20.0 (schema v17) remain compatible.
+- Designed and tested with **CC Switch 3.20.3** (database schema v18; 3.20.2 and 3.20.3 ship no database migration); CC Switch 3.20.1–3.20.2 (schema v18) and 3.20.0 (schema v17) remain compatible.
+- What 3.20.3 changes: Codex cards without `model_provider` now route through the local proxy under **takeover** (the live config is normalized to `[model_providers.cc-switch(-N)]` + `wire_api="responses"` + a `PROXY_MANAGED` bearer); universal-provider sync no longer wipes child settings, so anything an earlier sync erased (usage script, common-config opt-out, endpoint auto-select, sort order) must be re-entered — check with `common-config status` first; the Claude → Codex/Gemini/Grok cross-write of proxy retry/timeout values is stopped, but already-copied values are not restored, so review each app's proxy settings.
+- Codex routing checks are aligned with 3.20.3: `check --strict` flags top-level `openai_base_url` misroutes (only when the selector is absent or `openai`), selectors whose provider table is missing, and understands inline `model_providers`; the table produced by `repair --mode codex-0149` carries `model_provider` and `wire_api = "responses"`, matching CCS's own normalization, and never overwrites a user-authored `cc-switch` table.
+- Kimi's two Codex presets moved to native Responses in 3.20.3 (existing cards keep their snapshot — change the upstream format or re-import the preset to go direct); DeepSeek's `deepseek-flash` catalog entry gained vision, which applies after switching away and back.
 - Proxy-managed OAuth cards (xAI OAuth / GitHub Copilot) are forced to `requires_openai_auth = false` by CCS 3.20.2 (the local proxy injects the token); existing cards self-heal on the next switch, `check --strict` flags the wrong value, and `repair --mode codex-0149` fixes it early.
 - Run `python scripts/ccs_db.py doctor` to check your installed version and schema before operating.
 - Other versions may behave differently; see `references/migration.md` for official version behavior changes.
@@ -124,7 +127,7 @@ ccswitch://v1/import?resource=skill&repo=RuriLothlorien/CCSwitch-operations&bran
 
 ## Usage
 
-Requires **Python 3.11+** (recommended).
+Requires **Python 3.11+** (bundled `tomllib`, recommended); Python 3.8–3.10 needs [tomli](https://pypi.org/project/tomli/) installed first (the only optional third-party dependency — everything else is standard library).
 
 ```bash
 # Discover the environment
@@ -132,12 +135,13 @@ python scripts/ccs_db.py doctor
 
 # Safe checks
 python scripts/ccs_db.py check
-python scripts/ccs_db.py check --strict      # structural safety (MCP semantics / markers / header order / live-only)
+python scripts/ccs_db.py check --strict      # structural safety (MCP semantics / markers / header order / live-only / Codex 0.149 routing shapes)
 python scripts/ccs_db.py doctor --audit      # three-way consistency audit
 
 # Write commands run an automatic preflight; broken configs are refused
 # (put --force before the subcommand to override)
 python scripts/ccs_db.py repair --target config.toml --mode header-order   # dry-run
+python scripts/ccs_db.py repair --target provider --mode codex-0149        # dry-run: migrate legacy openai_base_url misroutes
 python scripts/ccs_db.py common-config status --app-type codex
 python scripts/ccs_db.py common-config get --app-type codex
 

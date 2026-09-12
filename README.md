@@ -14,7 +14,7 @@
 如果这个技能对你有帮助，欢迎点个 Star ⭐。
 
 > [!WARNING]
-> **CC Switch 3.20.0–3.20.2 手动编辑缺陷（#6719 截至 3.20.2 仍未修复）**：在 Codex 供应商编辑页**即使不做任何修改直接保存**，也可能导致 `~/.codex/config.toml` 块顺序重排、通用配置被剥离、标记错位，甚至把 url-only 远程 MCP 写成 `type="stdio"` + `command=""`；“通用配置提取”同样受影响（上游 issue [#6719](https://github.com/farion1231/cc-switch/issues/6719)）。
+> **CC Switch 3.20.0–3.20.3 手动编辑缺陷（#6719 截至 3.20.3 仍未修复）**：在 Codex 供应商编辑页**即使不做任何修改直接保存**，也可能导致 `~/.codex/config.toml` 块顺序重排、通用配置被剥离、标记错位，甚至把 url-only 远程 MCP 写成 `type="stdio"` + `command=""`；“通用配置提取”同样受影响（上游 issue [#6719](https://github.com/farion1231/cc-switch/issues/6719) 仍为 open 状态，3.20.3 修复列表未包含该问题）。
 > **建议**：不要用 CCS 编辑页维护 Codex 供应商/通用配置；请使用本技能的命令（`check --strict`、`doctor --audit`、`repair`、`common-config`、`provider-block` 等）安全修改。
 
 > [!WARNING]
@@ -36,7 +36,10 @@ CC Switch 的配置分散在数据库、`settings.json` 和多个应用的 live 
 
 ## 版本兼容
 
-- 本技能基于 **CC Switch 3.20.2**（数据库 schema v18；3.20.2 不含数据库迁移）设计与测试；3.20.1（schema v18）与 3.20.0（schema v17）仍兼容。
+- 本技能基于 **CC Switch 3.20.3**（数据库 schema v18；3.20.2/3.20.3 均不含数据库迁移）设计与测试；3.20.1–3.20.2（schema v18）与 3.20.0（schema v17）仍兼容。
+- 3.20.3 行为变化：Codex 缺 `model_provider` 的卡在**接管**时改经本地代理（live 配置规范为 `[model_providers.cc-switch(-N)]` + `wire_api="responses"` + `PROXY_MANAGED` 令牌）；统一供应商同步不再清空子卡设置——此前被清掉的用量脚本、通用配置勾选、端点自动选择与排序需要重填一次（可先用 `common-config status` 复核勾选）；每应用代理重试/超时的串写已停止，但已被覆盖的旧值不会自动恢复，需逐应用复核。
+- Codex 路由检测已对齐 3.20.3：`check --strict` 识别顶层 `openai_base_url` 误路由（仅在选择器缺省/`openai` 时生效）、选择器指向缺失表、内联 `model_providers`；`repair --mode codex-0149` 迁移出的表会带上 `model_provider` 与 `wire_api = "responses"`，与 CCS 自身的规范化形态一致，且不会覆盖用户已有的 `cc-switch` 表。
+- Kimi 两条 Codex 预设自 3.20.3 起改走原生 Responses（存量卡保持创建时快照；要直连可把“上游格式”改为 Responses 或重新导入预设）；DeepSeek `deepseek-flash` 目录新增视觉支持，**切走再切回**后生效。
 - 代理托管 OAuth 卡（xAI OAuth / GitHub Copilot）在 3.20.2 起由 CCS 强制 `requires_openai_auth = false`（令牌由本地代理注入），存量卡下次切换自愈；`check --strict` 会点名该标志，`repair --mode codex-0149` 可提前修正。
 - 操作前可运行 `python scripts/ccs_db.py doctor` 查看本机版本与 schema。
 - 其他版本可能略有差异，详见 `references/migration.md` 的官方版本行为变化。
@@ -124,7 +127,7 @@ ccswitch://v1/import?resource=skill&repo=RuriLothlorien/CCSwitch-operations&bran
 
 ## 使用
 
-要求 **Python 3.11+**（推荐）。
+要求 **Python 3.11+**（自带 `tomllib`，推荐）；Python 3.8–3.10 需要先安装 [tomli](https://pypi.org/project/tomli/)（唯一的可选第三方依赖，其余全部使用标准库）。
 
 ```bash
 # 查看环境（路径、schema、各应用供应商）
@@ -132,11 +135,12 @@ python scripts/ccs_db.py doctor
 
 # 安全校验
 python scripts/ccs_db.py check
-python scripts/ccs_db.py check --strict      # 结构安全（MCP 语义/标记/表头顺序/live-only）
+python scripts/ccs_db.py check --strict      # 结构安全（MCP 语义/标记/表头顺序/live-only/Codex 0.149 路由形态）
 python scripts/ccs_db.py doctor --audit      # 三处一致性审计
 
 # 写操作会自动 preflight；配置已损坏时会被拦截（--force 放在子命令前可显式跳过）
 python scripts/ccs_db.py repair --target config.toml --mode header-order   # dry-run
+python scripts/ccs_db.py repair --target provider --mode codex-0149        # dry-run：迁移旧 openai_base_url 误路由
 python scripts/ccs_db.py common-config status --app-type codex
 python scripts/ccs_db.py common-config get --app-type codex
 

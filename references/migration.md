@@ -2,6 +2,20 @@
 
 只记录 CC Switch 官方版本带来的行为变化；不包含任何用户/环境相关说明。
 
+## 3.20.3（2026-09-11）
+
+- **无数据库迁移**：schema 保持 v18；Codex 的字节游标复用 `session_log_sync.last_byte_offset`。升级后首轮会重新解析一次 rollout（只耗 CPU，按行偏移跳过已导入事件，不会重复计数）。
+- **Codex 缺 `model_provider` 的卡接管时改走本地代理**：缺失的选择器现在视为内置 `openai` 供应商，代理地址先写 `openai_base_url`，再由共享规范化步骤改写为 `[model_providers.cc-switch(-N)]`（`model_provider` 指向该表、`name`、`base_url`、`wire_api = "responses"`、`PROXY_MANAGED` bearer）——与其他第三方接管同形。旧行为把地址写到 Codex 不读的顶层 `base_url`，请求会静默直连 `api.openai.com`。直切（非接管）仍按卡片原样；该规范化对切换、接管备份与恢复的每次 live 写入都生效。
+- **统一供应商同步保留子卡设置**：此前同步会把子卡的 `meta`（用量脚本、通用配置 opt-out、端点自动选择）清空并把排序位置归零；3.20.3 起保留。**被旧版清掉的设置不会自动恢复**，需要重填一次——通用配置勾选可用 `common-config status` 复核后重新 `enable`。
+- **每应用代理重试/超时串写停止**：此前退出时会把 Claude 的代理重试/超时抄给 Codex、Gemini、Grok Build；3.20.3 止住串写，但**已被覆盖的旧值不会恢复**，需逐应用到代理设置复核。
+- **Chat 上游转换修复**：commentary 与紧随的工具调用合并进同一条 assistant 消息（#7280），修掉 Codex 长任务在一句进度汇报后停止；同一根因的 DeepSeek 无限复读也一并修复。升级后 Chat 上游卡会经历一次前缀缓存未命中（请求字节变了，之后逐轮稳定）。
+- **Claude Code 空 Thought 块修复**（#7227）：GLM、Qwen、DeepSeek 等每个 chunk 带空 `reasoning_content` 占位的上游不再刷屏。
+- **Claude Desktop 探针 `max_tokens` 1–15 夹到 16**（#7287）：Responses 上游下不再误报“模型不可用”。
+- **预设/目录/定价**：Kimi 开放平台与 Kimi For Coding 两条 Codex 预设由 `openai_chat` 改为 `openai_responses`（存量卡仍是 Chat 路由，可改“上游格式”或重新导入；注意开放平台 Tier 0 限 3 次/分钟）；千问AI平台改名并升到 Qwen 3.8（含 Pi 的 QwenCloud Token Plan 协议切换）；MiniMax 默认 M3；火山豆包显示名更新；千帆/腾讯 Token Plan 的 DeepSeek 行显式声明纯文本；DeepSeek 官方目录 `deepseek-flash` 支持视觉输入（切换供应商时重建 catalog，切走再切回生效）；DeepSeek V4 家族定价按 V4.1 Flash 档修正（历史费用不重算）。
+- **Claude Code 新增“禁用 Artifact 工具”快捷开关**：写 `settings_config.config.env.CLAUDE_CODE_DISABLE_ARTIFACT = "1"`，避免严格校验工具 schema 的网关对每个请求返回 400。
+- **#6719 仍未修复**：3.20.3 的修复列表与提交均不含“编辑页零改动保存破坏配置”，上游 issue 仍为 open；警告覆盖 3.20.0–3.20.3。
+- **代理与用量层修复**（不影响本技能的操作方式）：Windows 上正在增长的 Codex 会话用量按文件大小判定、托盘显示托管账号额度、Claude Fable 的 `limits[]` 周限额解析等。
+
 ## 3.20.2（2026-09-07）
 
 - **无数据库迁移**：schema 保持 v18，不产生迁移备份；`doctor` 读数与 3.20.1 相同。
