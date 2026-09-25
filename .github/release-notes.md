@@ -1,13 +1,13 @@
-# v1.1.5 增量更新
+# v1.2.0 增量更新
 
-## 对齐 CC Switch 3.20.3（2026-09-11）
+## 对齐 CC Switch 3.20.4（2026-09-22）
 
-- **基线升级**：以 CC Switch **3.20.3** 为验证基线（schema 仍为 v18，**本版无数据库迁移**）；3.20.1–3.20.2（schema v18）与 3.20.0（schema v17）继续兼容。
-- **修复 `repair --mode codex-0149` 的迁移产物**：此前迁移顶层 `openai_base_url` 时只建表，没有改写 `model_provider`、也没有写 `wire_api`，迁移出的表实际不参与路由（`check --strict` 还会误报已修好）。现在迁移结果与 CC Switch 3.20.3 自身的规范化完全一致：`model_provider = <新 id>` + `[model_providers.cc-switch(-N)]`（`name` / `base_url` / `wire_api = "responses"` / `experimental_bearer_token`）。用户已存在的 `cc-switch` 表不会被覆盖，顺延 `cc-switch-2`…；活跃路由的保留表改名后，`model_provider` 会跟着改名。
-- **收敛 `check --strict` 的误报**：顶层 `openai_base_url` 只在该键真正改路由（选择器缺省或 `openai`）时报告；选择器指向自带表的惰性残留不再误报，也不会被错误迁移。
-- **补上 `check --strict` 的漏报**：`model_provider` 指向缺失的 `[model_providers.<id>]` 表会被点名——该形态下顶层 token 不被 Codex 0.149 读取，路由会回落到内置 openai/auth.json。
-- **识别内联 `model_providers = { ... }`**：不再被误判为“空第三方卡”；单行内联表可就地完成迁移，多行内联表只提示、不写坏 TOML。
-- **3.20.3 升级要点已写入文档**：Codex 缺 `model_provider` 的卡在接管时改走本地代理；统一供应商同步不再清空子卡设置（旧版已清掉的用量脚本/通用配置勾选/端点自动选择/排序需重填一次，可用 `common-config status` 复核）；每应用代理重试/超时串写已停止但旧值不恢复；Kimi 两条 Codex 预设改原生 Responses；DeepSeek `deepseek-flash` 目录新增视觉支持（切走再切回生效）；Claude Code 新增“禁用 Artifact 工具”开关。**#6719 编辑页缺陷在 3.20.3 仍未修复**，警告覆盖 3.20.0–3.20.3。
+- **基线升级**：以 CC Switch **3.20.4** 为验证基线（数据库 schema **v19**）。3.20.4 首次启动执行 v18 → v19 迁移（`mcp_servers` 与 `skills` 各新增 `enabled_mcode`）；3.20.1–3.20.3（v18）与 3.20.0（v17）继续兼容，但迁移后旧版 CCS 会拒绝打开数据库，升级前请保留一份备份。mcode 相关命令需要 3.20.4+。
+- **新增第十个受管应用 MiniMax Code（`mcode`）**：`prompt-set --app-type mcode`（单条提示词 ≤32 KiB，超限直接拒绝）、`mcp-upsert --enable-mcode`、`skill-upsert --enable-mcode`、`set-flags --mcode 1`，`doctor` 会列出 mcode 供应商。mcode 的供应商是 `~/.minimax/config.yaml` 里的 YAML `custom_provider`，`provider-block` / `provider-env` / `provider-set-key` 会明确拒绝并提示改用 CCS 界面，避免写坏结构。
+- **新增 Codex 密钥恢复**：针对 3.20.4 修复的 #7434（编辑或切走供应商会清空已保存的 API Key，且旧值不会自动恢复）。`check --strict` / `doctor --audit` 会点名“auth 为空但 provider 表仍有 token”的可恢复形态；`repair --target provider --mode codex-key [--apply]` 从 provider 表回填 `auth.OPENAI_API_KEY`（默认 dry-run，apply 时自动备份；官方卡与代理托管 OAuth 卡按设计跳过）。
+- **向 v18 老库兼容**：helper 会探测数据库实际存在的 `enabled_*` 列，v18 数据库（没有 `enabled_mcode`）上所有命令照常工作；对缺少 mcode 列的老库，`set-flags --mcode` 会明确报错而不是写入失败。
+- **标志语义提示**：`mcp-upsert` / `skill-upsert` 的 `--enable-*` 是全量标志集——当这次更新会关掉原本启用的应用时，工具会打印警告并提示用 `set-flags` 单独切换（第十个应用加入后更容易踩到）。
+- **文档更新**：`SKILL.md`、README（中英）与 `references/*` 全部对齐 3.20.4：schema v19、MiniMax Code 边界与数据目录、密钥恢复、3.20.4 升级复核清单，#6719 警告覆盖 3.20.0–3.20.4。
 
 ## 更新安装方法
 
@@ -31,14 +31,14 @@ python scripts/ccs_db.py doctor --audit
 
 ---
 
-## v1.1.5 Incremental (English)
+## v1.2.0 Incremental (English)
 
-- Aligned with **CC Switch 3.20.3** (schema stays v18; no database migration); 3.20.1–3.20.2 (v18) and 3.20.0 (v17) remain compatible.
-- **Fixed the `repair --mode codex-0149` migration output**: it used to create the table without rewriting `model_provider` or writing `wire_api`, so the migrated table never carried the route (`check --strict` even reported the config as clean). The result now matches CC Switch 3.20.3's own normalization: `model_provider = <new id>` plus `[model_providers.cc-switch(-N)]` with `name`, `base_url`, `wire_api = "responses"` and `experimental_bearer_token`. An existing user-authored `cc-switch` table is preserved (the next free `cc-switch-2`… id is used), and a renamed reserved table follows with `model_provider`.
-- **Fewer false positives in `check --strict`**: a top-level `openai_base_url` is only reported when it actually reroutes (selector absent or `openai`); inert leftovers on custom-routed cards are left alone.
-- **New detection in `check --strict`**: a `model_provider` selector whose `[model_providers.<id>]` table is missing is flagged — top-level tokens are ignored by Codex 0.149 there, so the route falls back to the built-in openai/auth.json path.
-- **Inline `model_providers = { ... }` is recognized**: no more "empty third-party card" false positive; single-line inline tables are migrated in place, multi-line ones are reported instead of producing broken TOML.
-- **3.20.3 upgrade notes are documented**: cards without `model_provider` route through the local proxy under takeover; universal-provider sync keeps child settings, but anything an earlier sync erased must be re-entered (check `common-config status`); the per-app proxy retry/timeout cross-write is stopped but old values are not restored; Kimi's two Codex presets moved to native Responses; DeepSeek's `deepseek-flash` catalog entry gained vision (switch away and back); Claude Code has a new "disable Artifact tool" toggle. **#6719 is still unfixed in 3.20.3**, so the warning now covers 3.20.0–3.20.3.
+- Aligned with **CC Switch 3.20.4** (database schema **v19**). 3.20.4 migrates v18 → v19 on first start (`mcp_servers` and `skills` gain `enabled_mcode`); 3.20.1–3.20.3 (v18) and 3.20.0 (v17) remain compatible, but older CCS versions refuse to open the migrated database — keep a backup before upgrading. mcode commands need 3.20.4+.
+- **Tenth managed app: MiniMax Code (`mcode`)**: `prompt-set --app-type mcode` (prompts capped at 32 KiB), `mcp-upsert --enable-mcode`, `skill-upsert --enable-mcode`, `set-flags --mcode 1`, and `doctor` lists mcode providers. mcode providers live in `~/.minimax/config.yaml` as YAML `custom_provider` entries — `provider-block` / `provider-env` / `provider-set-key` refuse them with guidance instead of writing a shape CCS cannot read.
+- **New Codex key recovery**: covers #7434, fixed in 3.20.4 (editing or switching a provider used to wipe the saved API key, and lost keys are not restored automatically). `check --strict` / `doctor --audit` report the recoverable shape ("auth empty while the provider table still carries a token"), and `repair --target provider --mode codex-key [--apply]` restores `auth.OPENAI_API_KEY` from the provider table (dry-run by default, backup on apply; official and proxy-managed OAuth cards are skipped by design).
+- **Backward compatible with v18 databases**: the helper detects which `enabled_*` columns exist, so every command keeps working on a v18 database without `enabled_mcode`; `set-flags --mcode` reports the missing column instead of failing mid-write.
+- **Clearer flag semantics**: `mcp-upsert` / `skill-upsert` set the whole `--enable-*` flag set — the tool now warns when an update would disable an app that was enabled before and points to `set-flags` for single-app toggles (easier to hit with a tenth app).
+- **Docs updated**: `SKILL.md`, both READMEs and `references/*` now cover 3.20.4 (schema v19, MiniMax Code boundaries and data dir, key recovery, the 3.20.4 upgrade checklist, and the #6719 warning extended to 3.20.0–3.20.4).
 
 ### Update / Install
 

@@ -21,7 +21,7 @@
 | Pi 同名 skill 无法覆盖/删除 | CCS 只管理它自己拥有的 skill | 先确认归属，再手动处理 `~/.pi/agent/skills` |
 | 控制台显示 `��`/乱码 | 控制台按非 UTF-8 解码 Python 输出 | 用 `ascii()` / `repr()` 核对；DB 内文本通常完好 |
 | 官方 MCP 不在 `mcp_servers` 表 | 官方/内置服务器不归用户管理 | 属正常，不要补录；三处一致只针对用户自建 MCP |
-| CCS 3.20.0–3.20.3 编辑页零改动保存即破坏 Codex 配置（#6719 未修复） | 前端 smol-toml 重排 + 后端剥离/合并通用配置，空命令 stdio MCP 落盘；现象含 `notify = [...]` 错位、`[plugins]`/`[marketplaces]` 被剥离、`[mcp_servers]` 与 `[mcp_servers.node_repl(.env)]` 块/键被改写或重排 | 不要用编辑页保存/提取；用本技能 `check --strict` / `doctor --audit` / `repair` / `common-config` 维护；保存后与 `config.toml.bak` 或 `snapshot`/`diff` 做字节级对比；详见 references/incidents/2026-08-23-codex-config-mangle.md |
+| CCS 3.20.0–3.20.4 编辑页零改动保存即破坏 Codex 配置（#6719 未修复） | 前端 smol-toml 重排 + 后端剥离/合并通用配置，空命令 stdio MCP 落盘；现象含 `notify = [...]` 错位、`[plugins]`/`[marketplaces]` 被剥离、`[mcp_servers]` 与 `[mcp_servers.node_repl(.env)]` 块/键被改写或重排 | 不要用编辑页保存/提取；用本技能 `check --strict` / `doctor --audit` / `repair` / `common-config` 维护；保存后与 `config.toml.bak` 或 `snapshot`/`diff` 做字节级对比；详见 references/incidents/2026-08-23-codex-config-mangle.md |
 | AI 手写临时脚本直改 DB，provider 与 snippet 持有重复键 | 绕过技能命令、没有幂等/剥离逻辑 | 用 `common-config set-key/set --apply --sync-and-enable` 规范化：snippet 持有、provider 剥离、显式打勾；禁止临时脚本直改 DB |
 | 用户只说“同步 CCS”，AI 擅自只改 common-config | 范围推断错误，把“CCS”脑补成“通用配置” | “同步”默认降级为 provider 配置；改完后询问是否提取到通用配置模板（`common-config extract`）；只有用户明确提到“通用配置/common-config/模板”才直接碰 snippet |
 | 用户说“同步”，AI 把对象 A 的同步当成对象 B 的同步（如把同步 skill 当成配置同步） | 对象推断错误 | 由 AI 自行识别变更对象（结合上下文/待同步差异），没问题不轻易问；不要把对象 A 的同步当作对象 B 的同步（技能 ≠ 配置 ≠ 模板）；识别含配置才落配置铁律（provider-first + 提取询问） |
@@ -42,3 +42,10 @@
 | 接管后 Codex 停在登录屏（旧版） | 直切第三方删掉了 `~/.codex/auth.json`，而卡上仍是 0.149 之前的 `requires_openai_auth = true` | 3.20.2 已修：接管按 Codex 会观察到的登录状态覆盖该标志（`file` 跟随 auth.json、`ephemeral` 记未登录、`keyring`/`auto` 保留原值、auth.json 缺失/损坏视为未登录且不再写入失败）；旧版可手动改 false 或打开保留开关 |
 | catalog 类修复看不到效果 | catalog 只在**切换供应商**时重建 | 在受影响的卡上切走再切回一次即可（DeepSeek MCP 可见性、`supports_parallel_tool_calls` 回填、`deepseek-flash` 视觉模态、`glm-5.3` 纯文本均属此类） |
 | 重新导入预设才算生效（例：GLM 直连报 400 unknown variant custom；Kimi 想走原生 Responses） | 预设改动只影响**新建**供应商，存量卡保存的是创建时的快照 | 按需重新导入该预设（智谱 GLM 自 3.20.2 起改指官方 Responses 端点 `/api/v1`；Kimi 自 3.20.3 起改 `openai_responses`，也可只在编辑页把“上游格式”改成 Responses——注意 Kimi 开放平台 Tier 0 限 3 次/分钟）；例外：PPIO、JieKou、Novita 的模型列表地址按卡片 Base URL 反查，存量卡无需改动 |
+| 编辑或切走 Codex 供应商后已保存的 API Key 消失 | 3.20.4 之前 CCS 用 live 的空 auth 覆盖了 DB 里的 `auth.OPENAI_API_KEY`（#7434）；修复只防新增 | 升级到 3.20.4；若 provider 表里仍有 `experimental_bearer_token`，`check --strict` 会点名，`repair --target provider --mode codex-key --apply` 可回填；两处都没有时在 CCS 里重填，并检查用量脚本是否被重置 |
+| 绑定了已删除 ChatGPT 账号的 Codex 卡切不走/改不了 | 账号被删后绑定检查失败（#7395） | 升级到 3.20.4，在卡片上“选择账号”重绑；重绑前无法开启接管，启动恢复会关闭 Codex 接管（`~/.codex/auth.json` 不动） |
+| Codex 0.154+ 经 Chat 网关整轮 400 / 一张截图后会话每轮都失败 | `additional_tools` 被当成消息生成 `content: null`（#7454）；`detail:"original"` 只在 Responses 合法（#7476）；无描述工具发 `description: null`（#7319/#7378） | 升级到 3.20.4（已坏会话自动恢复）；升级后相关请求有一次前缀缓存未命中，之后稳定 |
+| 打开 CCS 提示词列表后 DB 里的提示词被 live 文件覆盖 | 3.20.4 起打开列表会读回 live 文件（`CLAUDE.md`/`AGENTS.md` 等）的外部修改（#7194，Pi 除外） | 维护提示词时用 `prompt-set` 写 DB；先确认 live 文件内容就是要保留的内容，再打开列表 |
+| 升级 3.20.4 后“隐藏 AI 署名”显示未勾选 | 新判定额外要求 `attribution.sessionUrl = false`，旧格式不带该字段（#7053） | 重新勾选一次（会自动补 `sessionUrl:false`） |
+| 3.20.4 升级后部分预设/端点/计价与预期不同 | AICodeWith 的 Codex 端点改为 `/v1`（存量卡是创建时快照）；DeepSeek V4 Pro 撤回调价、回到高峰档；`Ling-2.6-1T` 转纯文本 | 存量 AICodeWith 卡手动改端点或重新导入预设；其余是官方行为，无需本机操作 |
+| MiniMax Code（mcode）提示词写入失败 / CCS 找不到数据目录 | 提示词按 UTF-8 字节限 32 KiB；数据目录只认 `MINIMAX_DATA_DIR`/`MAVIS_DATA_DIR` 环境变量（都没有时用 `~/.minimax`） | 用 `prompt-set --app-type mcode`（本技能会先校验 32 KiB）；自定义目录时启动 CCS 也要带同一个环境变量；删除被 `defaultModel` 引用的供应商前先在 MiniMax Code 里换默认模型 |

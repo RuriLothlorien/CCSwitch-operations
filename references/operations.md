@@ -79,7 +79,7 @@ python "$S" mcp-upsert --name dashscope-websearch \
 python $S prompt-set --app-type codex --content-file prompts_codex.txt
 ```
 
-`--app-type` 支持 9 个应用：`codex` / `claude` / `claude-desktop` / `gemini` / `grokbuild` / `opencode` / `openclaw` / `hermes` / `pi`。
+`--app-type` 支持 10 个应用：`codex` / `claude` / `claude-desktop` / `gemini` / `grokbuild` / `opencode` / `openclaw` / `hermes` / `pi` / `mcode`（`mcode` = MiniMax Code，提示词单条 ≤32 KiB；供应商编辑请走 CCS 界面）。
 
 ### skill 注册
 
@@ -218,7 +218,44 @@ python scripts/ccs_db.py repair --target config.toml --mode codex-0149 --apply
 
 说明：`codex-0149` 会改名遗留保留表（活跃路由且自带密钥时同步改写 `model_provider`）、回填缺失的 `name`、把选择器缺省/`openai` 时真正生效的顶层 `openai_base_url` 迁移为 `[model_providers.cc-switch(-N)]`，并写入 `model_provider` + `wire_api = "responses"` + `base_url` + `experimental_bearer_token`——与 CCS 3.20.3 自身的规范化形态一致；用户已有的 `cc-switch` 表不会被覆盖（顺延 `cc-switch-2`…）。单行内联 `model_providers = { ... }` 会就地扩展，多行内联表只提示、不写坏 TOML。选择器指向自带表时，顶层 `openai_base_url` 是惰性残留，保持原样。对代理托管 OAuth 卡（`providers.meta.provider_type` = `xai_oauth` / `github_copilot`）还会把活跃表上的 `requires_openai_auth` 改为 `false`（与 CCS 3.20.2 一致）。空卡/无凭据/缺表的普通第三方卡仍然只提示，不会自动造表。
 
-### CC Switch 3.20.3 升级后复核
+### Codex 密钥恢复（3.20.4，#7434）
+
+```bash
+# 只读：check --strict / doctor --audit 会点名「auth 为空但 provider 表仍有 token」的卡
+python scripts/ccs_db.py check --strict
+
+# 恢复（默认 dry-run；--apply 写入并自动备份）
+python scripts/ccs_db.py repair --target provider --app-type codex --mode codex-key
+python scripts/ccs_db.py repair --target provider --provider-id <id> --mode codex-key --apply
+```
+
+说明：只处理可恢复形态（provider 文本里仍有 `experimental_bearer_token` / `api_key`）；官方卡与代理托管 OAuth 卡按设计跳过；两处都没有 token 时需要在 CCS 里重填密钥，并检查用量脚本是否被重置。
+
+### MiniMax Code（mcode，3.20.4+）
+
+```bash
+# 提示词（单条 ≤32 KiB UTF-8；超出会被本工具拒绝）
+python scripts/ccs_db.py prompt-set --app-type mcode --content-file mcode-prompt.txt
+
+# MCP / Skills 的 mcode 启用标志（v19 的 enabled_mcode 列）
+python scripts/ccs_db.py mcp-upsert --name my-server --config-file server_config.json --enable-mcode
+python scripts/ccs_db.py skill-upsert --name my-skill --enable-mcode
+python scripts/ccs_db.py set-flags --table skills --name my-skill --mcode 1
+```
+
+边界：mcode 供应商是 `~/.minimax/config.yaml` 的 YAML `custom_provider`，`provider-block` / `provider-env` / `provider-set-key` 会明确拒绝（请走 CCS 界面）；数据目录按 `MINIMAX_DATA_DIR` → `MAVIS_DATA_DIR` → `~/.minimax` 解析；MCP/Skills 默认对 mcode 关闭，开启后 CCS 才写 `~/.minimax`。注意 `mcp-upsert` / `skill-upsert` 的 `--enable-*` 是**全量标志集**（未传的会被置 0，关掉已启用项时工具会给出警告），单个开关请用 `set-flags`。
+
+### CC Switch 3.20.4 升级后复核
+
+```bash
+python scripts/ccs_db.py doctor --audit
+python scripts/ccs_db.py check --strict          # 含 #7434 密钥清空检测
+python scripts/ccs_db.py repair --target provider --app-type codex --mode codex-key   # dry-run
+```
+
+另外：绑定已删除 ChatGPT 账号的卡需手动重绑（重绑前无法开启接管）；「隐藏 AI 署名」需重新勾选；AICodeWith 的 Codex 端点需改成 `/v1`；DeepSeek V4 Pro 价格回到高峰档、`Ling-2.6-1T` 按纯文本处理。v18→v19 迁移后旧版 CCS 会拒绝打开数据库，确认升级前的备份还在。
+
+### CC Switch 3.20.3 升级后复核（历史）
 
 ```bash
 python scripts/ccs_db.py doctor --audit

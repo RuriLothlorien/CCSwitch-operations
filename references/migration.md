@@ -2,6 +2,21 @@
 
 只记录 CC Switch 官方版本带来的行为变化；不包含任何用户/环境相关说明。
 
+## 3.20.4（2026-09-22）
+
+- **数据库迁移 v18 → v19**：`mcp_servers` 与 `skills` 各新增 `enabled_mcode`（默认 0）。首次启动自动迁移；CCS 会尝试自动备份到 `<cc-home>/backups/`，但备份失败只记日志、不中止升级。运行过本版后 3.20.3 及更早版本会以“数据库版本过新”拒绝打开，降级需恢复升级前备份。
+- **第十个受管应用：MiniMax Code（app_type `mcode`）**：累加模式；供应商写入 `~/.minimax/config.yaml` 的 `custom_provider`（DB 里 `settings_config` 是 `name/kind/enabled/api/options/models` 的 JSON）；MCP ↔ `~/.minimax/mcp.json`；Skills → `~/.minimax/skills/`（Pi 式归属检查，不动非 CCS 所有的同名 skill）；提示词 → `~/.minimax/AGENTS.md`（单条 ≤32 KiB UTF-8 字节；停用最后一个提示词会清空文件；切换前会把 live 外部修改写回当前提示词）。数据目录：`MINIMAX_DATA_DIR` → `MAVIS_DATA_DIR` → `~/.minimax`（设置里不可覆盖）。默认模型、登录、云端功能、会话删除归 MiniMax 自己；无本地代理接管、故障转移、托盘、通用配置与 Profiles。存量 MCP/Skills 对 mcode 默认关闭，手动开启前 CCS 不写 `~/.minimax`。
+- **Codex 经 Chat 网关的修复**：Codex 0.154+ 的 `additional_tools` 不再生成 `content: null` 的 system 消息（#7454）；`detail: "original"` 截图不再让会话此后每轮 400（#7476）；无描述工具不再发 `"description": null`（#7319/#7378）。升级后相关请求有一次前缀缓存未命中，之后稳定。
+- **Codex 密钥不再被清空，但已丢的不恢复**：编辑或切走供应商不再用 live 的空 auth 覆盖已保存的 API Key（#7434）；之前被清空的密钥需重填，用量脚本若被重置也要重配。本技能 `check --strict` / `doctor --audit` 会报告“auth 为空但 provider 表仍有 token”的可恢复形态，`repair --target provider --mode codex-key --apply` 可回填。
+- **已删除 ChatGPT 账号的绑定**：绑定旧账号的 Codex 卡不再卡死切换/编辑，但需手动重绑；重绑前无法开启接管，若上次退出时接管开着，启动恢复会关闭 Codex 接管（`~/.codex/auth.json` 不动）（#7395）。
+- **Claude Code**：GitHub Copilot 下 auto mode 恢复（#5404）；`/effort` 的 `xhigh`、映射到 Grok 4.6 模型的推理强度、GPT-5.6/GPT-6 Astra 的 `max` 按所选档位发送（#7318/#7531）。
+- **Skills 安装**：skills.sh 的 id 与目录名不一致、超过 1 万个文件的仓库修复（#6381/#7489）。
+- **提示词读回**：打开提示词列表时，会用 live 文件（`CLAUDE.md`/`AGENTS.md` 等）的外部修改覆盖 DB 中“启用中”的内容；非启用模板不受影响，Pi 不在此列（#7194）。
+- **「隐藏 AI 署名」**：现在要求 `attribution.sessionUrl = false` 才算开启；旧格式 `{commit:"", pr:""}` 升级后显示未勾选，需重新勾选一次（不自动改写）（#7053）。
+- **预设/定价**：国内 Codex 预设按厂商 Responses 文档对齐（Kimi For Coding → K2.8 Preview、1M 窗口；DeepSeek 默认 `deepseek-flash`）；MiniMax 国内站与百灵迁到新官方域名；AICodeWith 的 Codex 端点改为 `/v1`（存量卡需手改）；DeepSeek V4 Pro 撤回调价、恢复高峰档；`Ling-2.6-1T` 按纯文本处理。
+- **其他**（不影响本技能操作方式）：Claude Desktop 第三方配置支持 Linux、请求日志显示每秒输出 token 数、OpenCode 供应商表单批量添加模型、Windows 任务栏与关于页版本探测修复。
+- **#6719 仍未修复**：编辑页零改动保存破坏 Codex 配置的缺陷不在 3.20.4 修复列表内，警告覆盖 3.20.0–3.20.4。
+
 ## 3.20.3（2026-09-11）
 
 - **无数据库迁移**：schema 保持 v18；Codex 的字节游标复用 `session_log_sync.last_byte_offset`。升级后首轮会重新解析一次 rollout（只耗 CPU，按行偏移跳过已导入事件，不会重复计数）。

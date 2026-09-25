@@ -1,6 +1,6 @@
 # CC Switch 架构速查
 
-## 数据库 `<cc-home>/cc-switch.db`（CCS 3.20.0 = schema v17；CCS 3.20.1–3.20.3 = schema v18，3.20.2/3.20.3 无迁移）
+## 数据库 `<cc-home>/cc-switch.db`（CCS 3.20.4 = schema v19；CCS 3.20.1–3.20.3 = schema v18；CCS 3.20.0 = schema v17）
 
 `cc-home` 解析顺序：`CC_SWITCH_HOME` 环境变量 → `~/.cc-switch`。
 
@@ -8,10 +8,10 @@
 
 | 表 | 作用 | 关键列 |
 | --- | --- | --- |
-| providers | 各应用下的供应商 | app_type(9 个应用), settings_config(JSON：`config` TOML 文本 / `env` / `modelCatalog`), provider_type, is_current, in_failover_queue, cost_multiplier, limit_daily_usd, limit_monthly_usd, meta |
+| providers | 各应用下的供应商 | app_type(10 个应用), settings_config(JSON：`config` TOML 文本 / `env` / `modelCatalog`；mcode 为 `name/kind/enabled/api/options/models`), provider_type, is_current, in_failover_queue, cost_multiplier, limit_daily_usd, limit_monthly_usd, meta |
 | prompts | 全局提示词 | app_type(codex/claude/claude-desktop/gemini/grokbuild/opencode/openclaw/hermes/pi), name(`全局`), content, enabled |
-| skills | skill 管理 | id(`local:<name>`), name, directory, repo_owner/repo_name/repo_branch/readme_url, enabled_codex/claude/gemini/opencode/hermes/grokbuild, installed_at, content_hash |
-| mcp_servers | MCP 面板 | id(slug), name, server_config(JSON), description, tags, enabled_codex/claude/gemini/opencode/hermes/grokbuild。只放用户自建/CCS 管理的服务器；官方/内置 MCP 故意不在此表 |
+| skills | skill 管理 | id(`local:<name>`), name, directory, repo_owner/repo_name/repo_branch/readme_url, enabled_codex/claude/gemini/opencode/hermes/grokbuild/mcode（v19 新增 `enabled_mcode`）, installed_at, content_hash |
+| mcp_servers | MCP 面板 | id(slug), name, server_config(JSON), description, tags, enabled_codex/claude/gemini/opencode/hermes/grokbuild/mcode（v19 新增 `enabled_mcode`）。只放用户自建/CCS 管理的服务器；官方/内置 MCP 故意不在此表 |
 | settings | 通用配置 | key(common_config_codex/common_config_claude/claude_desktop_gateway_token/official_providers_seeded/...), value |
 
 ### CCS 自管表（不要手改）
@@ -35,9 +35,11 @@
 - **Codex 缺 `model_provider` 的接管路由（3.20.3）**：接管把缺失的选择器视为内置 `openai`，先把代理地址写进顶层 `openai_base_url`，再由 `prepare` 的规范化步骤改写为 `[model_providers.cc-switch(-N)]`：`model_provider` 指向该表，表内为 `name` + `base_url` + `wire_api = "responses"` + `PROXY_MANAGED` bearer；用户已占用的 `cc-switch` 表名不会被覆盖（顺延 `cc-switch-2`…）。直切仍按 provider 卡的 `settings_config.config` 原样落盘。
 - **统一 Codex 会话历史注入**：开启 `unifyCodexSessionHistory` 时，官方卡的 live 配置会注入 `[model_providers.custom]`（`name="OpenAI"`、`requires_openai_auth=true`、`supports_websockets=true`、`wire_api="responses"`）；只有形态完全匹配时才会被剥离，第三方/用户自定义的同名 `custom` 表原样保留。
 - **Codex `requires_openai_auth`（3.20.2）**：代理托管 OAuth 卡（`providers.meta.provider_type` = `xai_oauth` / `github_copilot`）的活跃表被强制为 `false`（令牌由本地代理逐请求注入）；接管写入会按 Codex 观察到的登录状态覆盖该标志（`file` 跟随 auth.json、`ephemeral` 记未登录、`keyring`/`auto` 保留原值）；**Codex OAuth 例外**——官方登录即其凭据。
+- **Codex 密钥存储（3.20.1+，3.20.4 修复清空缺陷）**：DB 侧规范位置是 `providers.settings_config.auth.OPENAI_API_KEY`，live 侧是 `[model_providers.<id>].experimental_bearer_token`；3.20.4 之前编辑/切走可能把 auth 清空（#7434），已在 3.20.4 修复但旧值不恢复。本技能 `check --strict` / `doctor --audit` 报告“auth 为空但 provider 表仍有 token”的可恢复形态，`repair --target provider --mode codex-key --apply` 从 provider 表回填（官方卡与代理托管 OAuth 卡跳过）。
+- **MiniMax Code（3.20.4，`mcode`）**：累加模式；供应商是 `~/.minimax/config.yaml` 里的 `custom_provider` 条目（DB `settings_config` 为 JSON：`name/kind/enabled/api/options/models`）；MCP ↔ `~/.minimax/mcp.json`；Skills → `~/.minimax/skills/`；提示词 → `~/.minimax/AGENTS.md`（单条 ≤32 KiB，UTF-8 字节）。数据目录按 `MINIMAX_DATA_DIR` → `MAVIS_DATA_DIR` → `~/.minimax` 解析。CCS 不参与它的本地代理接管、故障转移、托盘、通用配置与 Profiles；默认模型、登录与会话删除也归 MiniMax 自己。
 - **恢复 `.db` 备份（3.20 行为变化）**：恢复后会按新库**重写所有受管应用的 live 配置（Pi 除外）**，而旧版只改数据库——恢复后仍需复核 MCP 三处一致。
 
-## 受管应用（CCS 3.20 共 9 个）与 Skills 目录
+## 受管应用（CCS 3.20.4 共 10 个）与 Skills 目录
 
 见 references/apps.md 的完整矩阵。
 
@@ -45,4 +47,5 @@
 
 - 源：`<cc-home>/skills/<name>`（`skillStorageLocation=cc_switch` 时）
 - 各受管应用：`~/.<app>/skills/<name>`，形态由 `skillSyncMethod` 决定（`auto` 优先 symlink、失败或已有普通目录时回退 copy；`symlink` 恒为链接；`copy` 恒为复制）
+- MiniMax Code：`~/.minimax/skills/<name>`（数据目录按 `MINIMAX_DATA_DIR` → `MAVIS_DATA_DIR` → `~/.minimax` 解析；Pi 式归属检查，不动非 CCS 所有的同名 skill）
 - Claude Desktop 3P：`%LOCALAPPDATA%\Claude-3p\local-agent-mode-sessions\skills-plugin\{org}\{account}\skills\<name>`（Junction）+ manifest.json 条目（`creatorType:"user"`, `syncManaged:false`, `enabled:true`）+ `cc-switch-managed.json`（管理标记）

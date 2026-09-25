@@ -20,7 +20,9 @@ Subcommands:
                   header order, live-only sections, Codex 0.149 routing shapes
                   (top-level openai_base_url reroutes, selector tables that are
                   missing, inline model_providers); proxy-managed OAuth cards
-                  are judged by the 3.20.2 flag rule)
+                  are judged by the 3.20.2 flag rule; a Codex card whose stored
+                  API key was wiped by CCS #7434 is reported when it can be
+                  restored from the provider table)
   doctor          print resolved paths, schema, and per-app provider status
   doctor --audit  read-only three-way consistency audit
   doctor --compare-backup <db>  diff current DB against a backup
@@ -29,7 +31,8 @@ Subcommands:
   repair          dry-run/apply fixes for header order / live-only sections
                   (codex-0149 also rewrites legacy openai_base_url reroutes into
                   a routable provider table and flips requires_openai_auth on
-                  proxy OAuth cards)
+                  proxy OAuth cards; codex-key restores auth.OPENAI_API_KEY from
+                  the provider table's experimental_bearer_token)
   common-config   get/set/check/extract/set-key/remove-key/status/enable/disable
 
 Safety model:
@@ -78,6 +81,20 @@ APP_TYPES = (
     "openclaw",
     "hermes",
     "pi",
+    "mcode",
+)
+
+# app id -> per-app enable column in `mcp_servers` / `skills`. Older schemas
+# (CCS <= 3.20.3) lack `enabled_mcode`; commands detect which columns exist so
+# the helper keeps working against v18 databases.
+FLAG_COLUMNS = (
+    ("claude", "enabled_claude"),
+    ("codex", "enabled_codex"),
+    ("gemini", "enabled_gemini"),
+    ("opencode", "enabled_opencode"),
+    ("hermes", "enabled_hermes"),
+    ("grokbuild", "enabled_grokbuild"),
+    ("mcode", "enabled_mcode"),
 )
 
 # Only these app types have a common-config snippet and the per-provider
@@ -125,6 +142,14 @@ def connect(db_path):
     return con
 
 
+def table_columns(con, table):
+    """Column names of `table` (empty set when it does not exist)."""
+    try:
+        return {r["name"] for r in con.execute(f"PRAGMA table_info({table})")}
+    except sqlite3.Error:
+        return set()
+
+
 def verify_no_q(label, values):
     bad = [v for v in values if isinstance(v, str) and "?" in v]
     if bad:
@@ -166,6 +191,37 @@ def resolve_provider_id(con, cc_home: Path, app_type, explicit_id=None):
     )
 
 
+def enabled_flag_columns(con, table):
+    """(app, column) pairs for the enable flags this schema actually has."""
+    cols = table_columns(con, table)
+    return [(app, col) for app, col in FLAG_COLUMNS if col in cols]
+
+
+def _flag_values(args, flag_cols):
+    return [int(getattr(args, f"enable_{app}")) for app, _ in flag_cols]
+
+
+def _flag_disabled_warning(table, prev_row, flag_cols, values):
+    """`mcp-upsert` / `skill-upsert` set the whole `--enable-*` flag set: warn
+    when that would silently disable apps that were enabled before."""
+    if not prev_row:
+        return None
+    disabled = [
+        app for (app, col), value in zip(flag_cols, values)
+        if prev_row[col] == 1 and value == 0
+    ]
+    if not disabled:
+        return None
+    return (
+        f"[warn] {table}: `--enable-*` is a full flag set; this update disables "
+        f"{', '.join(disabled)} — use 'set-flags' to toggle a single app"
+    )
+
+
+def _flag_summary(row, flag_cols):
+    return " ".join(f"{app}={row[col]}" for app, col in flag_cols)
+
+
 def cmd_mcp_upsert(args):
     cc_home, db_path = resolve_paths(args)
     run_preflight(args, cc_home, db_path, ("config", "common"))
@@ -176,30 +232,41 @@ def cmd_mcp_upsert(args):
 
     con = connect(db_path)
     cur = con.cursor()
-    flags = (
-        int(args.enable_claude), int(args.enable_codex), int(args.enable_gemini),
-        int(args.enable_opencode), int(args.enable_hermes), int(args.enable_grokbuild),
-    )
+    flag_cols = enabled_flag_columns(con, "mcp_servers")
+    col_names = [col for _, col in flag_cols]
+    values = _flag_values(args, flag_cols)
     existing = cur.execute("SELECT id FROM mcp_servers WHERE name=?", (args.name,)).fetchone()
+    warn = None
+    if existing and col_names:
+        prev = cur.execute(
+            f"SELECT {', '.join(col_names)} FROM mcp_servers WHERE name=?", (args.name,)
+        ).fetchone()
+        warn = _flag_disabled_warning("mcp_servers", prev, flag_cols, values)
     if existing:
+        sets = "server_config=?, description=?, tags=?"
+        if col_names:
+            sets += ", " + ", ".join(f"{col}=?" for col in col_names)
         cur.execute(
-            "UPDATE mcp_servers SET server_config=?, description=?, tags=?, "
-            "enabled_claude=?, enabled_codex=?, enabled_gemini=?, enabled_opencode=?, "
-            "enabled_hermes=?, enabled_grokbuild=? WHERE name=?",
-            (cfg, desc, tags, *flags, args.name),
+            f"UPDATE mcp_servers SET {sets} WHERE name=?",
+            (cfg, desc, tags, *values, args.name),
         )
         action = "UPDATED"
     else:
+        cols = ["id", "name", "server_config", "description", "homepage", "docs", "tags"] + col_names
         cur.execute(
-            "INSERT INTO mcp_servers (id, name, server_config, description, homepage, docs, tags, "
-            "enabled_claude, enabled_codex, enabled_gemini, enabled_opencode, enabled_hermes, enabled_grokbuild) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
-            (args.name, args.name, cfg, desc, "", "", tags, *flags),
+            f"INSERT INTO mcp_servers ({', '.join(cols)}) "
+            f"VALUES ({', '.join('?' * len(cols))})",
+            [args.name, args.name, cfg, desc, "", "", tags, *values],
         )
         action = "INSERTED"
     con.commit()
-    row = cur.execute("SELECT name, description, enabled_codex, enabled_claude FROM mcp_servers WHERE name=?", (args.name,)).fetchone()
-    print(f"[{action}] mcp_servers: {row['name']} codex={row['enabled_codex']} claude={row['enabled_claude']}")
+    sel = "name, description" + (", " + ", ".join(col_names) if col_names else "")
+    row = cur.execute(
+        f"SELECT {sel} FROM mcp_servers WHERE name=?", (args.name,)
+    ).fetchone()
+    print(f"[{action}] mcp_servers: {row['name']} {_flag_summary(row, flag_cols)}".rstrip())
+    if warn:
+        print(warn)
     verify_no_q("mcp_servers.description", [row["description"]])
     con.close()
 
@@ -208,6 +275,13 @@ def cmd_prompt_set(args):
     cc_home, db_path = resolve_paths(args)
     run_preflight(args, cc_home, db_path, ())
     content = read_text(args.content_file) if args.content_file else (args.content or "")
+    if args.app_type == "mcode":
+        size = len(content.encode("utf-8"))
+        if size > 32 * 1024:
+            raise SystemExit(
+                "MiniMax Code global prompts are limited to 32 KiB (UTF-8 bytes): "
+                f"got {size} bytes — CC Switch refuses to write it"
+            )
     name = args.name or "全局"
     now_ms = int(time.time() * 1000)
     con = connect(db_path)
@@ -251,37 +325,65 @@ def cmd_skill_upsert(args):
     skill_id = f"local:{args.name}"
     con = connect(db_path)
     cur = con.cursor()
+    flag_cols = enabled_flag_columns(con, "skills")
+    col_names = [col for _, col in flag_cols]
+    values = _flag_values(args, flag_cols)
     existing = cur.execute("SELECT id FROM skills WHERE id=?", (skill_id,)).fetchone()
+    warn = None
+    if existing and col_names:
+        prev = cur.execute(
+            f"SELECT {', '.join(col_names)} FROM skills WHERE id=?", (skill_id,)
+        ).fetchone()
+        warn = _flag_disabled_warning("skills", prev, flag_cols, values)
     if existing:
+        sets = ["name=?", "description=?", "directory=?"]
+        params = [args.name, desc, directory]
+        sets += [f"{col}=?" for col in col_names]
+        params += values
+        sets += ["content_hash=?", "updated_at=?"]
+        params += [content_hash, now, skill_id]
         cur.execute(
-            "UPDATE skills SET name=?, description=?, directory=?, enabled_claude=?, enabled_codex=?, "
-            "enabled_gemini=?, enabled_opencode=?, enabled_hermes=?, enabled_grokbuild=?, "
-            "content_hash=?, updated_at=? WHERE id=?",
-            (args.name, desc, directory, int(args.enable_claude), int(args.enable_codex),
-             int(args.enable_gemini), int(args.enable_opencode), int(args.enable_hermes),
-             int(args.enable_grokbuild), content_hash, now, skill_id),
+            f"UPDATE skills SET {', '.join(sets)} WHERE id=?", params
         )
         action = "UPDATED"
     else:
+        cols = [
+            "id", "name", "description", "directory", "repo_owner", "repo_name",
+            "repo_branch", "readme_url",
+        ] + col_names + ["installed_at", "content_hash", "updated_at"]
+        params = [skill_id, args.name, desc, directory, None, None, None, None]
+        params += values + [now, content_hash, now]
         cur.execute(
-            "INSERT INTO skills (id, name, description, directory, repo_owner, repo_name, repo_branch, "
-            "readme_url, enabled_claude, enabled_codex, enabled_gemini, enabled_opencode, enabled_hermes, "
-            "installed_at, content_hash, updated_at, enabled_grokbuild) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-            (skill_id, args.name, desc, directory, None, None, None, None,
-             int(args.enable_claude), int(args.enable_codex), int(args.enable_gemini),
-             int(args.enable_opencode), int(args.enable_hermes), now, content_hash, now,
-             int(args.enable_grokbuild)),
+            f"INSERT INTO skills ({', '.join(cols)}) "
+            f"VALUES ({', '.join('?' * len(cols))})",
+            params,
         )
         action = "INSERTED"
     con.commit()
+    sel = "id, name, content_hash" + (", " + ", ".join(col_names) if col_names else "")
     row = cur.execute(
-        "SELECT id, name, enabled_codex, enabled_claude, content_hash FROM skills WHERE id=?",
-        (skill_id,),
+        f"SELECT {sel} FROM skills WHERE id=?", (skill_id,)
     ).fetchone()
-    print(f"[{action}] skills: {row['name']} codex={row['enabled_codex']} claude={row['enabled_claude']} hash={row['content_hash'][:16]}...")
+    print(
+        f"[{action}] skills: {row['name']} {_flag_summary(row, flag_cols)} "
+        f"hash={row['content_hash'][:16]}..."
+    )
+    if warn:
+        print(warn)
     verify_no_q("skills.description", [desc])
     con.close()
+
+
+def _reject_mcode_provider_edit(app_type):
+    """MiniMax Code providers are YAML `custom_provider` entries (stored as a
+    JSON blob), not the TOML/env text this helper edits. Refuse with guidance
+    instead of writing a shape CC Switch will not read."""
+    if app_type == "mcode":
+        raise SystemExit(
+            "MiniMax Code providers live in ~/.minimax/config.yaml (custom_provider) and are "
+            "edited through the CC Switch UI; this helper manages mcode prompts, skills and MCP "
+            "flags only (provider-block/provider-env/provider-set-key do not support mcode)."
+        )
 
 
 def cmd_provider_block(args):
@@ -292,9 +394,12 @@ def cmd_provider_block(args):
     cur = con.cursor()
     provider_id = resolve_provider_id(cur, cc_home, args.app_type, args.provider_id)
     section = args.section.strip()
-    row = cur.execute("SELECT settings_config FROM providers WHERE id=?", (provider_id,)).fetchone()
+    row = cur.execute(
+        "SELECT app_type, settings_config FROM providers WHERE id=?", (provider_id,)
+    ).fetchone()
     if not row:
         raise SystemExit(f"provider not found: {provider_id}")
+    _reject_mcode_provider_edit(row["app_type"])
     obj = json.loads(row["settings_config"])
     if "config" not in obj or not isinstance(obj.get("config"), str):
         raise SystemExit(
@@ -369,9 +474,12 @@ def cmd_provider_env(args):
     con = connect(db_path)
     cur = con.cursor()
     provider_id = resolve_provider_id(cur, cc_home, args.app_type, args.provider_id)
-    row = cur.execute("SELECT settings_config FROM providers WHERE id=?", (provider_id,)).fetchone()
+    row = cur.execute(
+        "SELECT app_type, settings_config FROM providers WHERE id=?", (provider_id,)
+    ).fetchone()
     if not row:
         raise SystemExit(f"provider not found: {provider_id}")
+    _reject_mcode_provider_edit(row["app_type"])
     obj = json.loads(row["settings_config"])
     env = obj.get("env")
     if not isinstance(env, dict):
@@ -403,10 +511,11 @@ def cmd_provider_set_key(args):
     cur = con.cursor()
     provider_id = resolve_provider_id(cur, cc_home, args.app_type, args.provider_id)
     row = cur.execute(
-        "SELECT settings_config FROM providers WHERE id=?", (provider_id,)
+        "SELECT app_type, settings_config FROM providers WHERE id=?", (provider_id,)
     ).fetchone()
     if not row:
         raise SystemExit(f"provider not found: {provider_id}")
+    _reject_mcode_provider_edit(row["app_type"])
     obj = json.loads(row["settings_config"])
     if "config" not in obj or not isinstance(obj.get("config"), str):
         raise SystemExit(
@@ -433,17 +542,9 @@ def cmd_provider_set_key(args):
 
 
 def cmd_set_flags(args):
-    colmap = {
-        "codex": "enabled_codex",
-        "claude": "enabled_claude",
-        "gemini": "enabled_gemini",
-        "opencode": "enabled_opencode",
-        "hermes": "enabled_hermes",
-        "grokbuild": "enabled_grokbuild",
-    }
     updates = {}
-    for key, col in colmap.items():
-        val = getattr(args, key, None)
+    for app, col in FLAG_COLUMNS:
+        val = getattr(args, app, None)
         if val is not None:
             updates[col] = int(val)
     if not updates:
@@ -452,22 +553,25 @@ def cmd_set_flags(args):
     run_preflight(args, cc_home, db_path, ())
     con = connect(db_path)
     cur = con.cursor()
+    cols = table_columns(con, args.table)
+    missing = [col for col in updates if col not in cols]
+    if missing:
+        raise SystemExit(
+            f"{args.table}: column(s) not present in this CCS schema: {', '.join(missing)}; "
+            "mcode columns require CC Switch 3.20.4+"
+        )
     row = cur.execute(f"SELECT name FROM {args.table} WHERE name=?", (args.name,)).fetchone()
     if not row:
         raise SystemExit(f"{args.table} row not found: {args.name}")
     sets = ", ".join(f"{col}=?" for col in updates)
     cur.execute(f"UPDATE {args.table} SET {sets} WHERE name=?", (*updates.values(), args.name))
     con.commit()
+    flag_cols = [(app, col) for app, col in FLAG_COLUMNS if col in cols]
+    sel = "name, " + ", ".join(col for _, col in flag_cols)
     row = cur.execute(
-        f"SELECT name, enabled_codex, enabled_claude, enabled_gemini, enabled_opencode, "
-        f"enabled_hermes, enabled_grokbuild FROM {args.table} WHERE name=?",
-        (args.name,),
+        f"SELECT {sel} FROM {args.table} WHERE name=?", (args.name,)
     ).fetchone()
-    print(
-        f"[UPDATED] {args.table}/{row['name']}: codex={row['enabled_codex']} claude={row['enabled_claude']} "
-        f"gemini={row['enabled_gemini']} opencode={row['enabled_opencode']} "
-        f"hermes={row['enabled_hermes']} grokbuild={row['enabled_grokbuild']}"
-    )
+    print(f"[UPDATED] {args.table}/{row['name']}: {_flag_summary(row, flag_cols)}")
     con.close()
 
 
@@ -755,6 +859,15 @@ def _body_map(body):
     return m
 
 
+def _parsed_toml(text):
+    """Parse TOML into a dict; {} when the text is not valid TOML."""
+    try:
+        data = tomllib.loads(text)
+    except Exception:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
 def _rewrite_key_value(body, key, value):
     """Rewrite `key = ...` lines inside a section body; returns (body, changed)."""
     out = []
@@ -858,6 +971,59 @@ def _table_shape_issues(header, pid, entry, proxy_oauth, provider_type):
                 f"{header}: requires_openai_auth=true but no own credentials (switch will be refused)"
             )
     return issues
+
+
+def codex_provider_token_from_config(config_text):
+    """The bearer token Codex actually reads for this config, mirroring CCS:
+    a custom `model_provider` table when a selector is set, otherwise the
+    top-level `experimental_bearer_token` (built-in provider path)."""
+    data = _parsed_toml(config_text)
+    if not data:
+        return None
+    selector = data.get("model_provider")
+    selector = selector.strip() if isinstance(selector, str) else None
+    providers = data.get("model_providers")
+    if selector and selector not in CODEX_RESERVED_BUILTIN_IDS and isinstance(providers, dict):
+        entry = providers.get(selector)
+        if isinstance(entry, dict):
+            token = (
+                entry.get("experimental_bearer_token")
+                or entry.get("api_key")
+                or entry.get("apiKey")
+            )
+            if isinstance(token, str) and token.strip():
+                return token.strip()
+    token = data.get("experimental_bearer_token")
+    if isinstance(token, str) and token.strip():
+        return token.strip()
+    return None
+
+
+def codex_key_issues(settings_obj, category, provider_type):
+    """Detect the recoverable CC Switch #7434 shape: the stored
+    `auth.OPENAI_API_KEY` was overwritten with an empty value while the
+    provider text still carries the bearer token. Official cards and
+    proxy-managed OAuth cards are keyless by design and are skipped."""
+    if category == "official":
+        return []
+    if (provider_type or "").strip().lower() in CODEX_PROXY_MANAGED_OAUTH_TYPES:
+        return []
+    if not isinstance(settings_obj, dict):
+        return []
+    cfg = settings_obj.get("config")
+    if not isinstance(cfg, str) or not cfg.strip():
+        return []
+    if not codex_provider_token_from_config(cfg):
+        return []
+    auth = settings_obj.get("auth")
+    key = auth.get("OPENAI_API_KEY") if isinstance(auth, dict) else None
+    if isinstance(key, str) and key.strip():
+        return []
+    return [
+        "auth.OPENAI_API_KEY is empty while the provider text still carries "
+        "`experimental_bearer_token` (CC Switch #7434 wipe) — run "
+        "'repair --target provider --mode codex-key --apply' to restore it"
+    ]
 
 
 def codex_0149_issues(text, is_official=False, provider_type=None):
@@ -1174,14 +1340,6 @@ def _insert_inline_provider_member(body, provider_id, table_lines):
     return body, False
 
 
-def _parsed_toml(text):
-    try:
-        data = tomllib.loads(text)
-    except Exception:
-        return {}
-    return data if isinstance(data, dict) else {}
-
-
 def repair_codex_0149(text, provider_type=None):
     """Migrate Codex CLI 0.149-rejected or mis-routed shapes in a provider config.
 
@@ -1342,6 +1500,33 @@ def repair_codex_0149(text, provider_type=None):
     return _join_sections(new_sections), changes + notes
 
 
+def restore_codex_provider_key(settings_obj):
+    """Restore `auth.OPENAI_API_KEY` from the provider text's bearer token.
+
+    Returns (changed, message). Only the recoverable CC Switch #7434 shape is
+    handled: the auth key is empty/missing while the active route still carries
+    an `experimental_bearer_token` (or `api_key`)."""
+    cfg = settings_obj.get("config")
+    token = codex_provider_token_from_config(cfg) if isinstance(cfg, str) else None
+    if not token:
+        return False, (
+            "no recoverable bearer token in the provider text; re-enter the key "
+            "in the CC Switch UI"
+        )
+    auth = settings_obj.get("auth")
+    if not isinstance(auth, dict):
+        auth = {}
+    key = auth.get("OPENAI_API_KEY")
+    if isinstance(key, str) and key.strip():
+        return False, "auth.OPENAI_API_KEY is already set"
+    auth["OPENAI_API_KEY"] = token
+    settings_obj["auth"] = auth
+    return True, (
+        "restored auth.OPENAI_API_KEY from the provider table's "
+        "experimental_bearer_token (CC Switch #7434)"
+    )
+
+
 def toml_to_map(text):
     out = {}
     for header, path, _, body in parse_sections(text):
@@ -1431,13 +1616,13 @@ def _pair_instructions_markers(text):
     return text
 
 
-def collect_structural_issues(cc_home, db_path, targets=("providers", "config", "common")):
+def collect_structural_issues(cc_home, db_path, targets=("providers", "config", "common", "keys")):
     issues = []
     con = None
     try:
         con = connect(db_path)
         cur = con.cursor()
-        if "providers" in targets:
+        if "providers" in targets or "keys" in targets:
             try:
                 rows = cur.execute(
                     "SELECT id, app_type, name, category, meta, settings_config FROM providers"
@@ -1452,12 +1637,15 @@ def collect_structural_issues(cc_home, db_path, targets=("providers", "config", 
                     obj = json.loads(r["settings_config"] or "{}")
                 except Exception:
                     continue
+                try:
+                    meta = json.loads(r["meta"] or "{}")
+                except Exception:
+                    meta = {}
+                if "keys" in targets and r["app_type"] == "codex":
+                    for iss in codex_key_issues(obj, r["category"], meta.get("provider_type")):
+                        issues.append(f"provider[{r['name']}] key: {iss}")
                 cfg = obj.get("config")
-                if isinstance(cfg, str) and cfg.strip():
-                    try:
-                        meta = json.loads(r["meta"] or "{}")
-                    except Exception:
-                        meta = {}
+                if "providers" in targets and isinstance(cfg, str) and cfg.strip():
                     for iss in find_header_issues(
                         cfg,
                         is_provider_config=(r["app_type"] == "codex"),
@@ -1757,6 +1945,8 @@ def cmd_repair(args):
             new_text, removed = strip_live_only_sections(new_text)
         if mode in ("codex-0149", "both"):
             new_text, c149 = repair_codex_0149(new_text)
+        if mode == "codex-key":
+            print("  codex-key: only applies to --target provider (the key lives in the provider row)")
         changed = new_text != text
         print(f"[{'APPLY' if apply else 'DRY-RUN'}] config.toml changed={changed}")
         if moved:
@@ -1778,7 +1968,7 @@ def cmd_repair(args):
                 con, cc_home, args.app_type, None
             )
             row = con.execute(
-                "SELECT settings_config, meta FROM providers WHERE id=?", (provider_id,)
+                "SELECT settings_config, meta, category FROM providers WHERE id=?", (provider_id,)
             ).fetchone()
             if not row:
                 raise SystemExit(f"provider not found: {provider_id}")
@@ -1792,13 +1982,25 @@ def cmd_repair(args):
             moved = []
             removed = []
             c149 = []
+            key_msg = None
+            key_changed = False
             if mode in ("header-order", "both"):
                 new_cfg, moved = repair_header_order(new_cfg)
             if mode in ("live-only", "both"):
                 new_cfg, removed = strip_live_only_sections(new_cfg)
             if mode in ("codex-0149", "both"):
                 new_cfg, c149 = repair_codex_0149(new_cfg, provider_type=pmeta.get("provider_type"))
-            changed = new_cfg != cfg
+            if mode == "codex-key":
+                if row["category"] == "official" or (
+                    (pmeta.get("provider_type") or "").strip().lower()
+                    in CODEX_PROXY_MANAGED_OAUTH_TYPES
+                ):
+                    key_msg = (
+                        "skipped: official / proxy-managed OAuth cards are keyless by design"
+                    )
+                else:
+                    key_changed, key_msg = restore_codex_provider_key(obj)
+            changed = new_cfg != cfg or key_changed
             print(f"[{'APPLY' if apply else 'DRY-RUN'}] provider {provider_id} changed={changed}")
             if moved:
                 print("  moved:", ", ".join(moved[:30]))
@@ -1806,6 +2008,8 @@ def cmd_repair(args):
                 print("  removed:", ", ".join(removed[:30]))
             if c149:
                 print("  codex-0149:", "; ".join(c149[:30]))
+            if key_msg:
+                print("  codex-key:", key_msg)
             if changed and apply:
                 backup_db(cc_home, db_path, "repair-provider")
                 obj["config"] = new_cfg
@@ -1970,7 +2174,10 @@ def build_parser():
     sub = p.add_subparsers(dest="cmd", required=True)
 
     def add_bool_flags(sp):
-        for flag in ("enable_codex", "enable_claude", "enable_gemini", "enable_opencode", "enable_hermes", "enable_grokbuild"):
+        for flag in (
+            "enable_codex", "enable_claude", "enable_gemini", "enable_opencode",
+            "enable_hermes", "enable_grokbuild", "enable_mcode",
+        ):
             sp.add_argument(f"--{flag.replace('_', '-')}", dest=flag, action="store_true", default=False)
 
     m = sub.add_parser("mcp-upsert")
@@ -2030,7 +2237,7 @@ def build_parser():
     f = sub.add_parser("set-flags", description="Toggle enabled_* flags for an existing mcp_servers/skills row without touching other fields")
     f.add_argument("--table", required=True, choices=("mcp_servers", "skills"))
     f.add_argument("--name", required=True)
-    for key in ("codex", "claude", "gemini", "opencode", "hermes", "grokbuild"):
+    for key in ("codex", "claude", "gemini", "opencode", "hermes", "grokbuild", "mcode"):
         f.add_argument(f"--{key}", type=int, choices=(0, 1), default=None, help="1 = enable, 0 = disable")
     f.set_defaults(func=cmd_set_flags)
 
@@ -2052,7 +2259,12 @@ def build_parser():
 
     rp = sub.add_parser("repair", help="fix header order / live-only sections (dry-run by default)")
     rp.add_argument("--target", required=True, choices=("config.toml", "provider", "common"))
-    rp.add_argument("--mode", choices=("header-order", "live-only", "both", "codex-0149"), default="both")
+    rp.add_argument(
+        "--mode",
+        choices=("header-order", "live-only", "both", "codex-0149", "codex-key"),
+        default="both",
+        help="codex-key restores auth.OPENAI_API_KEY from the provider table (provider target only)",
+    )
     rp.add_argument("--apply", action="store_true", help="write changes (with automatic backup)")
     rp.add_argument("--provider-id")
     rp.add_argument("--app-type", choices=APP_TYPES, default="codex")

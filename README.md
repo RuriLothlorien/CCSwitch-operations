@@ -7,14 +7,14 @@
 
 > [English](README.en.md) | 简体中文
 
-可移植、可发布的 **CC Switch（CCS）** 操作技能：安全地维护全局提示词、Skills、MCP 服务器、供应商与 Codex 模型目录，覆盖 CCS 管理的九个应用。
+可移植、可发布的 **CC Switch（CCS）** 操作技能：安全地维护全局提示词、Skills、MCP 服务器、供应商与 Codex 模型目录，覆盖 CCS 管理的十个应用。
 
 本包自包含：**没有安装脚本，也不依赖任何外部辅助脚本**。安装方式只有两种——把技能目录解压/复制到 agent 的 skills 目录，或在 CC Switch 中从 zip 导入。
 
 如果这个技能对你有帮助，欢迎点个 Star ⭐。
 
 > [!WARNING]
-> **CC Switch 3.20.0–3.20.3 手动编辑缺陷（#6719 截至 3.20.3 仍未修复）**：在 Codex 供应商编辑页**即使不做任何修改直接保存**，也可能导致 `~/.codex/config.toml` 块顺序重排、通用配置被剥离、标记错位，甚至把 url-only 远程 MCP 写成 `type="stdio"` + `command=""`；“通用配置提取”同样受影响（上游 issue [#6719](https://github.com/farion1231/cc-switch/issues/6719) 仍为 open 状态，3.20.3 修复列表未包含该问题）。
+> **CC Switch 3.20.0–3.20.4 手动编辑缺陷（#6719 截至 3.20.4 仍未修复）**：在 Codex 供应商编辑页**即使不做任何修改直接保存**，也可能导致 `~/.codex/config.toml` 块顺序重排、通用配置被剥离、标记错位，甚至把 url-only 远程 MCP 写成 `type="stdio"` + `command=""`；“通用配置提取”同样受影响（上游 issue [#6719](https://github.com/farion1231/cc-switch/issues/6719) 仍为 open 状态，3.20.4 修复列表未包含该问题）。
 > **建议**：不要用 CCS 编辑页维护 Codex 供应商/通用配置；请使用本技能的命令（`check --strict`、`doctor --audit`、`repair`、`common-config`、`provider-block` 等）安全修改。
 
 > [!WARNING]
@@ -27,7 +27,7 @@ CC Switch 的配置分散在数据库、`settings.json` 和多个应用的 live 
 这个技能把“安全维护”沉淀成一套方法论和工具：
 
 - **不用碰数据库**：`mcp-upsert`、`prompt-set`、`skill-upsert`、`provider-block`、`provider-env`、`set-flags` 覆盖日常操作，全部由工具代劳
-- **按需维护，九个 agent 都覆盖**：Codex、Claude Code、Claude Desktop、Gemini、Grok Build、OpenCode、OpenClaw、Hermes、Pi 的配置边界一次讲清；只改某一个 agent 或批量同步都可以，不用再逐个手工确认
+- **按需维护，十个 agent 都覆盖**：Codex、Claude Code、Claude Desktop、Gemini、Grok Build、OpenCode、OpenClaw、Hermes、Pi、MiniMax Code 的配置边界一次讲清；只改某一个 agent 或批量同步都可以，不用再逐个手工确认
 - **先备份、后修改、再校验**：备份 → 停止 CCS → 修改 → 校验 → 重启 → 复核，照着流程走就不会漏
 - **自动发现路径、跨平台**：支持 `CC_SWITCH_HOME` / `~/.cc-switch`，Windows / macOS / Linux 通用
 - **中文内容安全**：UTF-8 安全读写，不再担心乱码
@@ -36,9 +36,10 @@ CC Switch 的配置分散在数据库、`settings.json` 和多个应用的 live 
 
 ## 版本兼容
 
-- 本技能基于 **CC Switch 3.20.3**（数据库 schema v18；3.20.2/3.20.3 均不含数据库迁移）设计与测试；3.20.1–3.20.2（schema v18）与 3.20.0（schema v17）仍兼容。
-- 3.20.3 行为变化：Codex 缺 `model_provider` 的卡在**接管**时改经本地代理（live 配置规范为 `[model_providers.cc-switch(-N)]` + `wire_api="responses"` + `PROXY_MANAGED` 令牌）；统一供应商同步不再清空子卡设置——此前被清掉的用量脚本、通用配置勾选、端点自动选择与排序需要重填一次（可先用 `common-config status` 复核勾选）；每应用代理重试/超时的串写已停止，但已被覆盖的旧值不会自动恢复，需逐应用复核。
-- Codex 路由检测已对齐 3.20.3：`check --strict` 识别顶层 `openai_base_url` 误路由（仅在选择器缺省/`openai` 时生效）、选择器指向缺失表、内联 `model_providers`；`repair --mode codex-0149` 迁移出的表会带上 `model_provider` 与 `wire_api = "responses"`，与 CCS 自身的规范化形态一致，且不会覆盖用户已有的 `cc-switch` 表。
+- 本技能基于 **CC Switch 3.20.4**（数据库 schema v19）设计与测试；3.20.1–3.20.3（schema v18）与 3.20.0（schema v17）仍兼容。**3.20.4 首次启动会把 v18 迁移到 v19**（`mcp_servers`/`skills` 各加 `enabled_mcode`）；迁移后旧版 CCS 会以“数据库版本过新”拒绝打开，升级前建议手动备份一次数据库。
+- 3.20.4 行为变化：新增第十个受管应用 **MiniMax Code（mcode）**（累加模式，供应商在 `~/.minimax/config.yaml`，MCP/skills/prompts 分别在 `~/.minimax/` 下，提示词单条 ≤32 KiB；默认模型、登录、会话删除归 MiniMax，无代理接管/故障转移/托盘/通用配置/Profiles）；修复 Codex 编辑或切走供应商时清空已保存 API Key 的问题（**已丢的不会自动恢复**——`check --strict` 会点名可恢复形态，`repair --target provider --mode codex-key --apply` 可从 provider 表回填）；绑定已删除 ChatGPT 账号的卡片需手动重绑；「隐藏 AI 署名」需重新勾选；AICodeWith 的 Codex 端点改为 `/v1`（存量卡需手改）。
+- mcode 相关命令需要 3.20.4+：`prompt-set --app-type mcode`、`mcp-upsert --enable-mcode`、`skill-upsert --enable-mcode`、`set-flags --mcode 1`；供应商编辑请走 CCS 界面（本技能的 provider-* 命令不支持 mcode 的 YAML 结构，会明确拒绝）。
+- 3.20.3 起：Codex 缺 `model_provider` 的卡在**接管**时改经本地代理（live 配置规范为 `[model_providers.cc-switch(-N)]` + `wire_api="responses"` + `PROXY_MANAGED` 令牌）；统一供应商同步不再清空子卡设置——此前被清掉的用量脚本、通用配置勾选、端点自动选择与排序需要重填一次（可先用 `common-config status` 复核勾选）；每应用代理重试/超时的串写已停止，但已被覆盖的旧值不会自动恢复；`check --strict` 已对齐路由语义（顶层 `openai_base_url` 误路由、选择器指向缺失表、内联 `model_providers`），`repair --mode codex-0149` 的迁移产物带 `model_provider` 与 `wire_api = "responses"`，不覆盖用户已有的 `cc-switch` 表。
 - Kimi 两条 Codex 预设自 3.20.3 起改走原生 Responses（存量卡保持创建时快照；要直连可把“上游格式”改为 Responses 或重新导入预设）；DeepSeek `deepseek-flash` 目录新增视觉支持，**切走再切回**后生效。
 - 代理托管 OAuth 卡（xAI OAuth / GitHub Copilot）在 3.20.2 起由 CCS 强制 `requires_openai_auth = false`（令牌由本地代理注入），存量卡下次切换自愈；`check --strict` 会点名该标志，`repair --mode codex-0149` 可提前修正。
 - 操作前可运行 `python scripts/ccs_db.py doctor` 查看本机版本与 schema。
@@ -48,7 +49,7 @@ CC Switch 的配置分散在数据库、`settings.json` 和多个应用的 live 
 
 - 安全写入流程：备份 → 停止 CCS → 修改 → 校验 → 重启 → 复核。
 - 面向中文内容安全的数据库辅助脚本（`scripts/ccs_db.py`），支持 UTF-8 文件与内联中文参数。
-- 覆盖全部 9 个受管应用：codex、claude、claude-desktop、gemini、grokbuild、opencode、openclaw、hermes、pi。
+- 覆盖全部 10 个受管应用：codex、claude、claude-desktop、gemini、grokbuild、opencode、openclaw、hermes、pi、mcode。
 - 跨平台：自动发现 `CC_SWITCH_HOME` / `~/.cc-switch`，文档同时给出 PowerShell 与 bash 示例。
 - `doctor` 子命令输出解析到的路径、数据库 schema 版本与各应用供应商状态。
 
@@ -141,13 +142,16 @@ python scripts/ccs_db.py doctor --audit      # 三处一致性审计
 # 写操作会自动 preflight；配置已损坏时会被拦截（--force 放在子命令前可显式跳过）
 python scripts/ccs_db.py repair --target config.toml --mode header-order   # dry-run
 python scripts/ccs_db.py repair --target provider --mode codex-0149        # dry-run：迁移旧 openai_base_url 误路由
+python scripts/ccs_db.py repair --target provider --mode codex-key         # dry-run：恢复被 CCS #7434 清空的 Codex 密钥
 python scripts/ccs_db.py common-config status --app-type codex
 python scripts/ccs_db.py common-config get --app-type codex
 
 # 示例（完整命令见 references/operations.md）
 python scripts/ccs_db.py mcp-upsert --name my-server --config-file server_config.json --enable-codex --enable-claude
 python scripts/ccs_db.py prompt-set --app-type codex --content-file prompt.txt
+python scripts/ccs_db.py prompt-set --app-type mcode --content-file mcode-prompt.txt  # MiniMax Code（≤32 KiB）
 python scripts/ccs_db.py skill-upsert --name my-skill --description "我的技能" --enable-codex
+python scripts/ccs_db.py set-flags --table skills --name my-skill --mcode 1
 ```
 
 设置 `CC_SWITCH_HOME` 环境变量可覆盖 CC Switch 主目录（默认 `~/.cc-switch`）。
