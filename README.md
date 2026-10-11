@@ -13,16 +13,15 @@
 
 如果这个技能对你有帮助，欢迎点个 Star ⭐。
 
-> [!WARNING]
-> **CC Switch 3.20.0–3.20.4 手动编辑缺陷（#6719 截至 3.20.4 仍未修复）**：在 Codex 供应商编辑页**即使不做任何修改直接保存**，也可能导致 `~/.codex/config.toml` 块顺序重排、通用配置被剥离、标记错位，甚至把 url-only 远程 MCP 写成 `type="stdio"` + `command=""`；“通用配置提取”同样受影响（上游 issue [#6719](https://github.com/farion1231/cc-switch/issues/6719) 仍为 open 状态，3.20.4 修复列表未包含该问题）。
-> **建议**：不要用 CCS 编辑页维护 Codex 供应商/通用配置；请使用本技能的命令（`check --strict`、`doctor --audit`、`repair`、`common-config`、`provider-block` 等）安全修改。
+> [!NOTE]
+> **曾经的 3.20.x 手动编辑缺陷已在 CCS 4.0.4 修复（#6719 已关闭）**：3.20.0–3.20.3 的 Codex 供应商编辑页在零改动保存时可能重排 `config.toml`、剥离通用配置、写入 `type="stdio"` + 空 `command` 的坏块。4.0.4 起写入改为“只替换关键字段”，零改动保存与保存前逐字节一致。**已经写坏的条目不会自动恢复**：可在 MCP 面板把服务器关掉再打开一次重写，或用本技能的 `check --strict` / `repair` / `mcp-upsert` 修复。
 
 > [!WARNING]
 > **Codex 桌面版需要 `~/.codex/auth.json`**：CC Switch 3.20.1 起的 Codex 第三方切换是 config-only（密钥写进 `[model_providers.*]` 的 `experimental_bearer_token`），但部分 Codex 构建（尤其桌面版）以 `auth.json` 是否存在判定登录态——只写 token 并删除 `auth.json` 会让 Codex 回到默认登录页。3.20.2 只修了**接管**路径，**直切**第三方仍会删除 `auth.json`。请保留 `auth.json`，并在 CCS 设置中打开“非接管切换时保留官方登录”（`preserveCodexOfficialAuthOnSwitch=true`）。
 
 ## 为什么需要这个技能？
 
-CC Switch 的配置分散在数据库、`settings.json` 和多个应用的 live 配置文件里。手动维护的痛点是：位置多、容易忘，改完还要去 Codex、Claude Code、Claude Desktop、Gemini 等每个 agent 里**逐个确认**是否生效，稍不留神漏一处，下次切换供应商时配置就被覆盖、工具就失效。更麻烦的是，**AI 在自我维护时往往只顾自己的 agent 配置，不会顾及你本机安装的 CC Switch**——它自己写的 `config.toml` / `settings.json` 可能和 CCS 的管理状态冲突，下一次切换就被回写覆盖。更糟的是，**CCS 自己也可能误操作你的配置**——例如 3.20.0 的 Codex 供应商编辑页，即使零改动直接保存，也可能重排 `config.toml`、剥离通用配置、写入空命令 MCP 坏块，带来各种麻烦。用户不应该费时费力地手动维护 CCS 与你的 agents 的一致性。
+CC Switch 的配置分散在数据库、`settings.json` 和多个应用的 live 配置文件里。手动维护的痛点是：位置多、容易忘，改完还要去 Codex、Claude Code、Claude Desktop、Gemini 等每个 agent 里**逐个确认**是否生效，稍不留神漏一处，下次切换供应商时配置就被覆盖、工具就失效。更麻烦的是，**AI 在自我维护时往往只顾自己的 agent 配置，不会顾及你本机安装的 CC Switch**——它自己写的 `config.toml` / `settings.json` 可能和 CCS 的管理状态冲突，下一次切换就被回写覆盖。更糟的是，**CCS 自己也可能误操作你的配置**——3.20.0–3.20.3 的 Codex 供应商编辑页曾在零改动保存时重排 `config.toml`、剥离通用配置、写入空命令 MCP 坏块（4.0.4 已修复，存量坏块仍需重同步或用本技能修复）。用户不应该费时费力地手动维护 CCS 与你的 agents 的一致性。
 
 这个技能把“安全维护”沉淀成一套方法论和工具：
 
@@ -36,13 +35,12 @@ CC Switch 的配置分散在数据库、`settings.json` 和多个应用的 live 
 
 ## 版本兼容
 
-- 本技能基于 **CC Switch 3.20.4**（数据库 schema v19）设计与测试；3.20.1–3.20.3（schema v18）与 3.20.0（schema v17）仍兼容。**3.20.4 首次启动会把 v18 迁移到 v19**（`mcp_servers`/`skills` 各加 `enabled_mcode`）；迁移后旧版 CCS 会以“数据库版本过新”拒绝打开，升级前建议手动备份一次数据库。
-- 3.20.4 行为变化：新增第十个受管应用 **MiniMax Code（mcode）**（累加模式，供应商在 `~/.minimax/config.yaml`，MCP/skills/prompts 分别在 `~/.minimax/` 下，提示词单条 ≤32 KiB；默认模型、登录、会话删除归 MiniMax，无代理接管/故障转移/托盘/通用配置/Profiles）；修复 Codex 编辑或切走供应商时清空已保存 API Key 的问题（**已丢的不会自动恢复**——`check --strict` 会点名可恢复形态，`repair --target provider --mode codex-key --apply` 可从 provider 表回填）；绑定已删除 ChatGPT 账号的卡片需手动重绑；「隐藏 AI 署名」需重新勾选；AICodeWith 的 Codex 端点改为 `/v1`（存量卡需手改）。
-- mcode 相关命令需要 3.20.4+：`prompt-set --app-type mcode`、`mcp-upsert --enable-mcode`、`skill-upsert --enable-mcode`、`set-flags --mcode 1`；供应商编辑请走 CCS 界面（本技能的 provider-* 命令不支持 mcode 的 YAML 结构，会明确拒绝）。
-- 3.20.3 起：Codex 缺 `model_provider` 的卡在**接管**时改经本地代理（live 配置规范为 `[model_providers.cc-switch(-N)]` + `wire_api="responses"` + `PROXY_MANAGED` 令牌）；统一供应商同步不再清空子卡设置——此前被清掉的用量脚本、通用配置勾选、端点自动选择与排序需要重填一次（可先用 `common-config status` 复核勾选）；每应用代理重试/超时的串写已停止，但已被覆盖的旧值不会自动恢复；`check --strict` 已对齐路由语义（顶层 `openai_base_url` 误路由、选择器指向缺失表、内联 `model_providers`），`repair --mode codex-0149` 的迁移产物带 `model_provider` 与 `wire_api = "responses"`，不覆盖用户已有的 `cc-switch` 表。
-- Kimi 两条 Codex 预设自 3.20.3 起改走原生 Responses（存量卡保持创建时快照；要直连可把“上游格式”改为 Responses 或重新导入预设）；DeepSeek `deepseek-flash` 目录新增视觉支持，**切走再切回**后生效。
-- 代理托管 OAuth 卡（xAI OAuth / GitHub Copilot）在 3.20.2 起由 CCS 强制 `requires_openai_auth = false`（令牌由本地代理注入），存量卡下次切换自愈；`check --strict` 会点名该标志，`repair --mode codex-0149` 可提前修正。
-- 操作前可运行 `python scripts/ccs_db.py doctor` 查看本机版本与 schema。
+- 本技能基于 **CC Switch 4.0.8**（数据库 schema v20）设计与测试；3.20.4（v19）、3.20.1–3.20.3（v18）与 3.20.0（v17）仍可读取，但 **4.0 首次启动会把 v19 迁移到 v20**（`mcp_servers` 加 `enabled_pi`），迁移后旧版 CCS 会以“数据库版本过新”拒绝打开——升级前请保留自动备份。
+- CCS 4.0 行为变化：**通用配置片段功能已移除**（共享设置直接留在客户端配置文件里并跨切换保留；临时在客户端选的模型/推理强度，切走再切回会恢复为供应商设定值）；新增**聚合（Stack）模式**（仅 Claude Code / Codex，按所选模型分发、不提供故障转移，状态在设备本地 `~/.cc-switch/live-state.json`，Claude 的发布模型在 `providers.meta.stackModels`）；配置写入改为“只替换关键字段”；MCP 支持 Pi（`~/.pi/agent/mcp.json`，v20 的 `enabled_pi`）；Codex 0.158+ 的 MCP `type` 字段问题已修（CCS 4.0 写入时剥离）；可选压缩 Codex 历史会话（写 `[features] local_thread_store_compression`）。
+- **`common-config` 命令只适用于 CCS ≤ 3.20.4（schema ≤ v19）**；在 v20 上所有 `common-config` 子命令都会被明确拒绝并提示新做法：共享键写客户端 live 配置，供应商专属字段写卡片（`provider-block` / `provider-set-key` / `provider-env`）。
+- mcode 相关命令需要 3.20.4+；Pi MCP（`mcp-upsert --enable-pi`、`set-flags --pi`）需要 4.0+；供应商编辑请走 CCS 界面（本技能的 provider-* 命令不支持 mcode 的 YAML 结构，会明确拒绝）。
+- 3.20.x 遗留行为（Codex `model_provider` 缺省卡的接管路由、统一同步的子卡设置、代理重试/超时串写、Kimi/DeepSeek 预设等）与 4.0 的完整变化见 `references/migration.md`。
+- 操作前可运行 `python scripts/ccs_db.py doctor` 查看本机版本、schema 与各应用当前模式（直连/路由/聚合）。
 - 其他版本可能略有差异，详见 `references/migration.md` 的官方版本行为变化。
 
 ## 功能特性
@@ -51,7 +49,7 @@ CC Switch 的配置分散在数据库、`settings.json` 和多个应用的 live 
 - 面向中文内容安全的数据库辅助脚本（`scripts/ccs_db.py`），支持 UTF-8 文件与内联中文参数。
 - 覆盖全部 10 个受管应用：codex、claude、claude-desktop、gemini、grokbuild、opencode、openclaw、hermes、pi、mcode。
 - 跨平台：自动发现 `CC_SWITCH_HOME` / `~/.cc-switch`，文档同时给出 PowerShell 与 bash 示例。
-- `doctor` 子命令输出解析到的路径、数据库 schema 版本与各应用供应商状态。
+- `doctor` 子命令输出解析到的路径、数据库 schema 版本、各应用供应商状态与当前模式（直连/路由/聚合，读 `live-state.json`）。
 
 ## 工作原理
 
@@ -88,7 +86,7 @@ CCSwitch-operations/
 ├─ assets/ccswitch-operations-banner.png  # 社交预览图（仅仓库内）
 ├─ references/
 │  ├─ architecture.md          # 架构速查
-│  ├─ apps.md                  # 九大受管应用矩阵
+│  ├─ apps.md                  # 十大受管应用矩阵
 │  ├─ operations.md            # 操作模板（PowerShell + bash）
 │  ├─ pitfalls.md              # 已踩过的坑
 │  ├─ migration.md             # 官方版本行为变化
@@ -131,23 +129,23 @@ ccswitch://v1/import?resource=skill&repo=RuriLothlorien/CCSwitch-operations&bran
 要求 **Python 3.11+**（自带 `tomllib`，推荐）；Python 3.8–3.10 需要先安装 [tomli](https://pypi.org/project/tomli/)（唯一的可选第三方依赖，其余全部使用标准库）。
 
 ```bash
-# 查看环境（路径、schema、各应用供应商）
+# 查看环境（路径、schema、各应用供应商与当前模式：直连/路由/聚合）
 python scripts/ccs_db.py doctor
 
 # 安全校验
 python scripts/ccs_db.py check
-python scripts/ccs_db.py check --strict      # 结构安全（MCP 语义/标记/表头顺序/live-only/Codex 0.149 路由形态）
-python scripts/ccs_db.py doctor --audit      # 三处一致性审计
+python scripts/ccs_db.py check --strict      # 结构安全（MCP 语义/标记/表头顺序/live-only/Codex 路由与密钥/MCP type）
+python scripts/ccs_db.py doctor --audit      # 三处一致性审计 + 各应用模式
 
 # 写操作会自动 preflight；配置已损坏时会被拦截（--force 放在子命令前可显式跳过）
 python scripts/ccs_db.py repair --target config.toml --mode header-order   # dry-run
 python scripts/ccs_db.py repair --target provider --mode codex-0149        # dry-run：迁移旧 openai_base_url 误路由
 python scripts/ccs_db.py repair --target provider --mode codex-key         # dry-run：恢复被 CCS #7434 清空的 Codex 密钥
-python scripts/ccs_db.py common-config status --app-type codex
-python scripts/ccs_db.py common-config get --app-type codex
+python scripts/ccs_db.py repair --target provider --mode mcp-type         # dry-run：清理 Codex 不接受的 MCP `type` 键
 
 # 示例（完整命令见 references/operations.md）
 python scripts/ccs_db.py mcp-upsert --name my-server --config-file server_config.json --enable-codex --enable-claude
+python scripts/ccs_db.py mcp-upsert --name my-server --config-file server_config.json --enable-pi   # Pi 1.0（CCS 4.0+）
 python scripts/ccs_db.py prompt-set --app-type codex --content-file prompt.txt
 python scripts/ccs_db.py prompt-set --app-type mcode --content-file mcode-prompt.txt  # MiniMax Code（≤32 KiB）
 python scripts/ccs_db.py skill-upsert --name my-skill --description "我的技能" --enable-codex
@@ -155,6 +153,8 @@ python scripts/ccs_db.py set-flags --table skills --name my-skill --mcode 1
 ```
 
 设置 `CC_SWITCH_HOME` 环境变量可覆盖 CC Switch 主目录（默认 `~/.cc-switch`）。
+
+> CCS 4.0 已移除“通用配置片段”，因此 `common-config` 子命令只在 schema ≤ v19（CCS ≤ 3.20.4）上可用；v20 上会被明确拒绝并提示把共享键写进客户端 live 配置。
 
 ## 构建 zip
 
@@ -169,7 +169,7 @@ python scripts/build-zip.py --version 1.0.0
 ## 文档
 
 - `references/architecture.md` — 架构速查（表结构、生效链路）
-- `references/apps.md` — 九大受管应用矩阵
+- `references/apps.md` — 十大受管应用矩阵
 - `references/operations.md` — 操作命令模板（PowerShell + bash）
 - `references/pitfalls.md` — 已踩过的坑
 - `references/migration.md` — 官方版本行为变化

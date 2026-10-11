@@ -21,7 +21,7 @@
 | Pi 同名 skill 无法覆盖/删除 | CCS 只管理它自己拥有的 skill | 先确认归属，再手动处理 `~/.pi/agent/skills` |
 | 控制台显示 `��`/乱码 | 控制台按非 UTF-8 解码 Python 输出 | 用 `ascii()` / `repr()` 核对；DB 内文本通常完好 |
 | 官方 MCP 不在 `mcp_servers` 表 | 官方/内置服务器不归用户管理 | 属正常，不要补录；三处一致只针对用户自建 MCP |
-| CCS 3.20.0–3.20.4 编辑页零改动保存即破坏 Codex 配置（#6719 未修复） | 前端 smol-toml 重排 + 后端剥离/合并通用配置，空命令 stdio MCP 落盘；现象含 `notify = [...]` 错位、`[plugins]`/`[marketplaces]` 被剥离、`[mcp_servers]` 与 `[mcp_servers.node_repl(.env)]` 块/键被改写或重排 | 不要用编辑页保存/提取；用本技能 `check --strict` / `doctor --audit` / `repair` / `common-config` 维护；保存后与 `config.toml.bak` 或 `snapshot`/`diff` 做字节级对比；详见 references/incidents/2026-08-23-codex-config-mangle.md |
+| CCS 3.20.0–3.20.3 编辑页零改动保存即破坏 Codex 配置（4.0.4 已修复，#6719 已关闭） | 前端 smol-toml 重排 + 后端剥离/合并通用配置，空命令 stdio MCP 落盘；现象含 `notify = [...]` 错位、`[plugins]`/`[marketplaces]` 被剥离、`[mcp_servers]` 与 `[mcp_servers.node_repl(.env)]` 块/键被改写或重排 | 4.0.4 起写入改为“只替换关键字段”，零改动保存逐字节一致，编辑页可安全使用；**存量坏块不会自动修**——用本技能 `check --strict` / `doctor --audit` / `repair` 修复，或在 MCP 面板把条目关掉再打开重写；详见 references/incidents/2026-08-23-codex-config-mangle.md |
 | AI 手写临时脚本直改 DB，provider 与 snippet 持有重复键 | 绕过技能命令、没有幂等/剥离逻辑 | 用 `common-config set-key/set --apply --sync-and-enable` 规范化：snippet 持有、provider 剥离、显式打勾；禁止临时脚本直改 DB |
 | 用户只说“同步 CCS”，AI 擅自只改 common-config | 范围推断错误，把“CCS”脑补成“通用配置” | “同步”默认降级为 provider 配置；改完后询问是否提取到通用配置模板（`common-config extract`）；只有用户明确提到“通用配置/common-config/模板”才直接碰 snippet |
 | 用户说“同步”，AI 把对象 A 的同步当成对象 B 的同步（如把同步 skill 当成配置同步） | 对象推断错误 | 由 AI 自行识别变更对象（结合上下文/待同步差异），没问题不轻易问；不要把对象 A 的同步当作对象 B 的同步（技能 ≠ 配置 ≠ 模板）；识别含配置才落配置铁律（provider-first + 提取询问） |
@@ -49,3 +49,10 @@
 | 升级 3.20.4 后“隐藏 AI 署名”显示未勾选 | 新判定额外要求 `attribution.sessionUrl = false`，旧格式不带该字段（#7053） | 重新勾选一次（会自动补 `sessionUrl:false`） |
 | 3.20.4 升级后部分预设/端点/计价与预期不同 | AICodeWith 的 Codex 端点改为 `/v1`（存量卡是创建时快照）；DeepSeek V4 Pro 撤回调价、回到高峰档；`Ling-2.6-1T` 转纯文本 | 存量 AICodeWith 卡手动改端点或重新导入预设；其余是官方行为，无需本机操作 |
 | MiniMax Code（mcode）提示词写入失败 / CCS 找不到数据目录 | 提示词按 UTF-8 字节限 32 KiB；数据目录只认 `MINIMAX_DATA_DIR`/`MAVIS_DATA_DIR` 环境变量（都没有时用 `~/.minimax`） | 用 `prompt-set --app-type mcode`（本技能会先校验 32 KiB）；自定义目录时启动 CCS 也要带同一个环境变量；删除被 `defaultModel` 引用的供应商前先在 MiniMax Code 里换默认模型 |
+| CCS 4.0 里 `common-config` 改了没效果 | 4.0 移除了“通用配置片段”：DB 里的 `common_config_*` 与 `providers.meta.common_config_enabled` 只是升级遗留 | 本技能在 schema v20 上会拒绝所有 `common-config` 命令；共享键写进客户端 live 配置（如 `~/.codex/config.toml`），供应商专属字段写卡片（`provider-block` / `provider-set-key` / `provider-env`） |
+| Codex 0.158+ 因 MCP `type` 字段报错/起不来 | 旧版 CCS/手动配置把 `type = "stdio"` 写进了 `[mcp_servers.*]`；4.0 写入时会剥离，但 live 里可能残留旧值 | 先看 `check --strict`（live config 会被审计）；`repair --target config.toml --mode mcp-type [--apply]` 或面板关/开重写；不要在 Codex 的 provider config / live config 里手写 `type` |
+| Codex 聚合模式下子 agent 读不到任务 | 新版子 agent 工具把任务加密给主 agent 的供应商，跨供应商解不开 | 在「设置 → 应用配置 → Codex」打开「聚合模式下子 agent 用经典工具」（`settings.json: codexStackClassicSubagents`），改完重启 Codex；代价是没有 `followup_task` 等新工具 |
+| 打开「压缩 Codex 历史会话」后别的工具读不到会话 | 7 天以上会话被压成 `.jsonl.zst`，直接读 raw `.jsonl` 的工具看不到 | 属于预期行为：压缩会话在 CCS 里照常可读，Codex 继续时会自动解压；需要被第三方读取时不要开该开关 |
+| 升级 4.0 后旧触发的问题还在 | 部分修复（Codex 模型目录、会话分组、MCP `type`）要等 CCS 下一次写入才生效 | 升级后切换一次供应商；已有 MCP 配置重新同步一次；时间 MCP 预设改为 `uvx mcp-server-time`（存量需手改） |
+| 4.0 里找不到设置项 | 4.0 移除了供应商成本倍率、连通性检查高级设置、Claude 的 Teammates 与最大强度 | 已写入配置的环境变量不会被自动删除；需要时用官方端点的默认值或在会话里用 `/effort max` |
+| Claude Code 聚合模型在 `/model` 里看不到 | Claude Code < 2.1.243 不支持 `modelPicker` | `claude --version` 检查并 `claude update`；Codex 聚合列表变化后按提示重启 |

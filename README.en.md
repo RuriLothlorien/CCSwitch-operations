@@ -13,16 +13,15 @@ The package is self-contained: no installer script, no external helper dependenc
 
 If this skill helps you, please give it a ⭐.
 
-> [!WARNING]
-> **Known CC Switch 3.20.0–3.20.4 manual-edit bug (not fixed as of 3.20.4, #6719)**: saving the Codex provider page in CC Switch — even without changing anything — can reorder `~/.codex/config.toml`, strip common-config blocks, misplace markers, and even serialize a url-only remote MCP as `type="stdio"` + `command=""`; the "extract common config" flow is affected too (upstream issue [#6719](https://github.com/farion1231/cc-switch/issues/6719) is still open; the 3.20.4 fix list does not include it).
-> **Recommendation**: do not use the CC Switch edit page to maintain Codex provider/common config. Use this skill's commands instead (`check --strict`, `doctor --audit`, `repair`, `common-config`, `provider-block`, ...).
+> [!NOTE]
+> **The old 3.20.x manual-edit bug was fixed in CC Switch 4.0.4 (#6719 is closed)**: in 3.20.0–3.20.3, saving the Codex provider page without changes could reorder `config.toml`, strip common-config blocks, and write `type="stdio"` + an empty `command`. From 4.0.4 the writer replaces only key fields — a zero-change save is byte-identical. **Already-damaged entries are not auto-fixed**: toggle the MCP server off/on in the panel to re-sync it, or use this skill's `check --strict` / `repair` / `mcp-upsert`.
 
 > [!WARNING]
 > **Codex desktop app requires `~/.codex/auth.json`**: CC Switch 3.20.1+ switches Codex third-party providers config-only (key goes into `[model_providers.*]` as `experimental_bearer_token`), but some Codex builds (especially the desktop app) decide login state by the *presence* of `auth.json` — writing the token and deleting `auth.json` can send Codex back to the default login screen. 3.20.2 fixed only the **takeover** path; a **direct** third-party switch still deletes `auth.json`. Keep `auth.json`, and enable “Preserve official Codex auth on switch” (`preserveCodexOfficialAuthOnSwitch=true`) in CCS settings.
 
 ## Why this skill?
 
-CC Switch spreads its configuration across a database, `settings.json`, and each app's live config files. Maintaining it by hand means remembering a dozen locations, then checking **every agent one by one** — Codex, Claude Code, Claude Desktop, Gemini, and the rest — to see whether a change actually took effect. Miss one spot and the next provider switch overwrites your work, or a tool silently stops working. Worse, **AI agents maintaining their own configuration rarely know about your CC Switch installation** — their edits to `config.toml` / `settings.json` can conflict with what CCS manages and get overwritten on the next switch. Even worse, **CC Switch itself can misoperate your configuration** — for example, in 3.20.0, saving the Codex provider edit page without changing anything can reorder `config.toml`, strip common config, and write an empty-command MCP block, causing all kinds of trouble. You should not have to spend time and effort manually keeping CCS and your agents consistent.
+CC Switch spreads its configuration across a database, `settings.json`, and each app's live config files. Maintaining it by hand means remembering a dozen locations, then checking **every agent one by one** — Codex, Claude Code, Claude Desktop, Gemini, and the rest — to see whether a change actually took effect. Miss one spot and the next provider switch overwrites your work, or a tool silently stops working. Worse, **AI agents maintaining their own configuration rarely know about your CC Switch installation** — their edits to `config.toml` / `settings.json` can conflict with what CCS manages and get overwritten on the next switch. Even worse, **CC Switch itself can misoperate your configuration** — in 3.20.0–3.20.3, saving the Codex provider edit page without changing anything could reorder `config.toml`, strip common config, and write an empty-command MCP block (fixed in 4.0.4; already-damaged entries still need a re-sync or this skill's repair). You should not have to spend time and effort manually keeping CCS and your agents consistent.
 
 This skill turns safe maintenance into one repeatable workflow:
 
@@ -36,13 +35,13 @@ This skill turns safe maintenance into one repeatable workflow:
 
 ## Compatibility
 
-- Designed and tested with **CC Switch 3.20.4** (database schema v19); CC Switch 3.20.1–3.20.3 (schema v18) and 3.20.0 (schema v17) remain compatible. **3.20.4 migrates v18 → v19 on first start** (`mcp_servers`/`skills` gain `enabled_mcode`); after that, older CCS versions refuse to open the database, so keep a manual backup before upgrading.
-- What 3.20.4 changes: a tenth managed app, **MiniMax Code (`mcode`)** (additive providers in `~/.minimax/config.yaml`, MCP/skills/prompts under `~/.minimax/`, prompts capped at 32 KiB; default model, login and session deletion stay with MiniMax — no proxy takeover, failover, tray, common-config or Profiles); editing/switching a Codex provider no longer wipes a saved API key (keys already lost are **not** restored — `check --strict` reports the recoverable shape and `repair --target provider --mode codex-key --apply` restores it from the provider table); cards bound to a deleted ChatGPT account must be re-bound manually; the "hide AI attribution" toggle must be re-checked; AICodeWith Codex cards need the endpoint changed to `/v1`.
-- mcode commands need 3.20.4+: `prompt-set --app-type mcode`, `mcp-upsert --enable-mcode`, `skill-upsert --enable-mcode`, `set-flags --mcode 1`. Provider editing stays in the CC Switch UI — the provider-* commands refuse mcode's YAML structure.
-- Since 3.20.3: Codex cards without `model_provider` route through the local proxy under **takeover** (live config normalized to `[model_providers.cc-switch(-N)]` + `wire_api="responses"` + a `PROXY_MANAGED` bearer); universal-provider sync no longer wipes child settings, so anything an earlier sync erased (usage script, common-config opt-out, endpoint auto-select, sort order) must be re-entered — check with `common-config status` first; the Claude → Codex/Gemini/Grok cross-write of proxy retry/timeout values is stopped, but already-copied values are not restored; `check --strict` covers the 3.20.3 routing shapes (top-level `openai_base_url` misroutes, selectors whose provider table is missing, inline `model_providers`) and the table produced by `repair --mode codex-0149` carries `model_provider` and `wire_api = "responses"` without overwriting a user-authored `cc-switch` table.
-- Kimi's two Codex presets moved to native Responses in 3.20.3 (existing cards keep their snapshot — change the upstream format or re-import the preset to go direct); DeepSeek's `deepseek-flash` catalog entry gained vision, which applies after switching away and back.
-- Proxy-managed OAuth cards (xAI OAuth / GitHub Copilot) are forced to `requires_openai_auth = false` by CCS 3.20.2 (the local proxy injects the token); existing cards self-heal on the next switch, `check --strict` flags the wrong value, and `repair --mode codex-0149` fixes it early.
-- Run `python scripts/ccs_db.py doctor` to check your installed version and schema before operating.
+- Designed and tested with **CC Switch 4.0.8** (database schema v20); 3.20.4 (v19), 3.20.1–3.20.3 (v18) and 3.20.0 (v17) remain readable, but **4.0 migrates v19 → v20 on first start** (`mcp_servers` gains `enabled_pi`) and older CCS versions then refuse to open the database — keep the automatic backup.
+- What 4.0 changes: **the common-config snippet feature is gone** (shared settings now live in the client config file and survive provider switches; a model or effort picked inside the client reverts to the provider's value on switch); a third mode, **stack/aggregation** (Claude Code + Codex only, per-model dispatch, no failover; state in the device-local `~/.cc-switch/live-state.json`, Claude models in `providers.meta.stackModels`); config writing replaces only key fields (the #6719 fix); MCP syncs to Pi (`~/.pi/agent/mcp.json`, `enabled_pi`); Codex 0.158+'s MCP `type` rejection is fixed (CCS 4.0 strips it on write); optional Codex session compression writes `[features] local_thread_store_compression`; GitHub Copilot accounts work on Codex (router on).
+- **`common-config` only works on CCS ≤ 3.20.4 (schema ≤ v19)**; on v20 every `common-config` subcommand is refused with guidance: shared keys belong in the client live config, provider-specific fields in the card (`provider-block` / `provider-set-key` / `provider-env`).
+- mcode commands need 3.20.4+ (`prompt-set --app-type mcode`, `--enable-mcode`, `set-flags --mcode 1`); Pi MCP (`mcp-upsert --enable-pi`, `set-flags --pi`) needs 4.0+. Provider editing stays in the CC Switch UI — the provider-* commands refuse mcode's YAML structure.
+- Legacy 3.20.x behavior (missing-`model_provider` takeover routing, universal-sync child settings, proxy retry/timeout cross-writes, Kimi/DeepSeek presets) and the full 4.0 change list are in `references/migration.md`.
+- Proxy-managed OAuth cards (xAI OAuth / GitHub Copilot) are forced to `requires_openai_auth = false` (the local proxy injects the token); `check --strict` flags the wrong value, and `repair --mode codex-0149` fixes it early.
+- Run `python scripts/ccs_db.py doctor` to check your installed version, schema and each app's current mode (direct/route/stack) before operating.
 - Other versions may behave differently; see `references/migration.md` for official version behavior changes.
 
 ## Features
@@ -51,7 +50,7 @@ This skill turns safe maintenance into one repeatable workflow:
 - UTF-8-safe database helper (`scripts/ccs_db.py`) for Chinese content.
 - Covers all 10 managed apps: codex, claude, claude-desktop, gemini, grokbuild, opencode, openclaw, hermes, pi, mcode.
 - Cross-platform: `CC_SWITCH_HOME` / `~/.cc-switch` discovery, PowerShell and bash examples.
-- `doctor` subcommand prints resolved paths, schema version, and per-app provider availability.
+- `doctor` subcommand prints resolved paths, schema version, per-app provider availability, and each app's current mode (direct/route/stack, from `live-state.json`).
 
 ## How it works
 
@@ -88,7 +87,7 @@ CCSwitch-operations/
 ├─ assets/ccswitch-operations-banner.png  # Social preview banner (repo only)
 ├─ references/
 │  ├─ architecture.md          # Architecture quick reference
-│  ├─ apps.md                  # The 9 managed apps matrix
+│  ├─ apps.md                  # The 10 managed apps matrix
 │  ├─ operations.md            # Command templates (PowerShell + bash)
 │  ├─ pitfalls.md              # Known pitfalls
 │  ├─ migration.md             # Official CCS version behavior changes
@@ -131,24 +130,24 @@ ccswitch://v1/import?resource=skill&repo=RuriLothlorien/CCSwitch-operations&bran
 Requires **Python 3.11+** (bundled `tomllib`, recommended); Python 3.8–3.10 needs [tomli](https://pypi.org/project/tomli/) installed first (the only optional third-party dependency — everything else is standard library).
 
 ```bash
-# Discover the environment
+# Discover the environment (paths, schema, per-app mode: direct/route/stack)
 python scripts/ccs_db.py doctor
 
 # Safe checks
 python scripts/ccs_db.py check
-python scripts/ccs_db.py check --strict      # structural safety (MCP semantics / markers / header order / live-only / Codex 0.149 routing shapes)
-python scripts/ccs_db.py doctor --audit      # three-way consistency audit
+python scripts/ccs_db.py check --strict      # structural safety (MCP semantics / markers / header order / live-only / Codex routing & keys / MCP type)
+python scripts/ccs_db.py doctor --audit      # three-way consistency audit + per-app modes
 
 # Write commands run an automatic preflight; broken configs are refused
 # (put --force before the subcommand to override)
 python scripts/ccs_db.py repair --target config.toml --mode header-order   # dry-run
 python scripts/ccs_db.py repair --target provider --mode codex-0149        # dry-run: migrate legacy openai_base_url misroutes
 python scripts/ccs_db.py repair --target provider --mode codex-key         # dry-run: restore a key wiped by CCS #7434
-python scripts/ccs_db.py common-config status --app-type codex
-python scripts/ccs_db.py common-config get --app-type codex
+python scripts/ccs_db.py repair --target provider --mode mcp-type         # dry-run: strip MCP `type` keys Codex rejects
 
 # Examples (see references/operations.md for the full set)
 python scripts/ccs_db.py mcp-upsert --name my-server --config-file server_config.json --enable-codex --enable-claude
+python scripts/ccs_db.py mcp-upsert --name my-server --config-file server_config.json --enable-pi  # Pi 1.0 (CCS 4.0+)
 python scripts/ccs_db.py prompt-set --app-type codex --content-file prompt.txt
 python scripts/ccs_db.py prompt-set --app-type mcode --content-file mcode-prompt.txt  # MiniMax Code (32 KiB limit)
 python scripts/ccs_db.py skill-upsert --name my-skill --description "My skill" --enable-codex
@@ -156,6 +155,8 @@ python scripts/ccs_db.py set-flags --table skills --name my-skill --mcode 1
 ```
 
 Set `CC_SWITCH_HOME` to override the CC Switch home directory (default: `~/.cc-switch`).
+
+> CCS 4.0 removed the common-config snippet, so `common-config` subcommands only work on schema ≤ v19 (CCS ≤ 3.20.4); on v20 they are refused with guidance to put shared keys into the client live config.
 
 ## Build the zip
 

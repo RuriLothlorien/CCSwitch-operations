@@ -22,7 +22,8 @@ Subcommands:
                   missing, inline model_providers); proxy-managed OAuth cards
                   are judged by the 3.20.2 flag rule; a Codex card whose stored
                   API key was wiped by CCS #7434 is reported when it can be
-                  restored from the provider table)
+                  restored from the provider table; `type` keys in Codex
+                  [mcp_servers.*] are reported because Codex 0.158+ rejects them)
   doctor          print resolved paths, schema, and per-app provider status
   doctor --audit  read-only three-way consistency audit
   doctor --compare-backup <db>  diff current DB against a backup
@@ -32,7 +33,8 @@ Subcommands:
                   (codex-0149 also rewrites legacy openai_base_url reroutes into
                   a routable provider table and flips requires_openai_auth on
                   proxy OAuth cards; codex-key restores auth.OPENAI_API_KEY from
-                  the provider table's experimental_bearer_token)
+                  the provider table's experimental_bearer_token; mcp-type strips
+                  `type` lines that Codex 0.158+ rejects)
   common-config   get/set/check/extract/set-key/remove-key/status/enable/disable
 
 Safety model:
@@ -84,9 +86,23 @@ APP_TYPES = (
     "mcode",
 )
 
+# CC Switch 4.0 (schema v20) removed the common-config snippet; the DB may
+# still carry legacy `common_config_*` rows and per-provider flags, but they no
+# longer affect any live config.
+COMMON_CONFIG_MAX_SCHEMA = 19
+COMMON_CONFIG_REMOVED_MSG = (
+    "CC Switch 4.0 removed the common-config snippet (schema v20): shared settings now live in "
+    "the client config file and survive provider switches. Put shared keys in the live config "
+    "(e.g. ~/.codex/config.toml for Codex) and keep provider cards for provider-specific fields; "
+    "use provider-block / provider-set-key / provider-env for cards. common-config only applies "
+    "to CCS <= 3.20.4 (schema <= v19)."
+)
+
 # app id -> per-app enable column in `mcp_servers` / `skills`. Older schemas
-# (CCS <= 3.20.3) lack `enabled_mcode`; commands detect which columns exist so
-# the helper keeps working against v18 databases.
+# lack some of these columns (v18: no `enabled_mcode`, v19: no `enabled_pi`);
+# commands detect which columns exist so the helper keeps working against old
+# databases. Pi skills are enabled by existence, so `enabled_pi` only exists on
+# `mcp_servers`.
 FLAG_COLUMNS = (
     ("claude", "enabled_claude"),
     ("codex", "enabled_codex"),
@@ -95,6 +111,7 @@ FLAG_COLUMNS = (
     ("hermes", "enabled_hermes"),
     ("grokbuild", "enabled_grokbuild"),
     ("mcode", "enabled_mcode"),
+    ("pi", "enabled_pi"),
 )
 
 # Only these app types have a common-config snippet and the per-provider
@@ -150,6 +167,46 @@ def table_columns(con, table):
         return set()
 
 
+def db_schema_version(db_path):
+    """`PRAGMA user_version` of a CCS database (None when unavailable)."""
+    path = Path(db_path)
+    if not path.exists():
+        return None
+    try:
+        con = connect(path)
+        try:
+            return con.execute("PRAGMA user_version").fetchone()[0]
+        finally:
+            con.close()
+    except sqlite3.Error:
+        return None
+
+
+def schema_at_least(db_path, minimum):
+    """True when the database schema version is >= `minimum`."""
+    version = db_schema_version(db_path)
+    return version is not None and version >= minimum
+
+
+def common_config_removed(db_path):
+    """True when the database belongs to CCS >= 4.0 (schema v20+), where the
+    common-config snippet feature no longer exists."""
+    return schema_at_least(db_path, COMMON_CONFIG_MAX_SCHEMA + 1)
+
+
+def device_state_path():
+    """CCS device-local state file (`live-state.json`).
+
+    CC Switch keeps it next to the default home (`~/.cc-switch`), NOT under a
+    `CC_SWITCH_HOME` override. `CC_SWITCH_DEVICE_HOME` lets tests and portable
+    setups point at another device directory.
+    """
+    override = os.environ.get("CC_SWITCH_DEVICE_HOME")
+    if override:
+        return Path(override).expanduser() / "live-state.json"
+    return Path.home() / ".cc-switch" / "live-state.json"
+
+
 def verify_no_q(label, values):
     bad = [v for v in values if isinstance(v, str) and "?" in v]
     if bad:
@@ -201,6 +258,27 @@ def _flag_values(args, flag_cols):
     return [int(getattr(args, f"enable_{app}")) for app, _ in flag_cols]
 
 
+def _unavailable_flag_notes(table, flag_cols, args):
+    """Explain `--enable-*` flags this schema cannot store instead of silently
+    ignoring them (v18 has no `enabled_mcode`, v19 has no `enabled_pi`)."""
+    have = {col for _, col in flag_cols}
+    notes = []
+    for app, col in FLAG_COLUMNS:
+        if col in have or not getattr(args, f"enable_{app}", False):
+            continue
+        if table == "skills" and app == "pi":
+            notes.append(
+                "[note] Pi skills are enabled by existence (no enabled_pi column); "
+                "--enable-pi is ignored for skills"
+            )
+        else:
+            notes.append(
+                f"[warn] {table}: --enable-{app} ignored — this CCS schema has no "
+                f"{col} column (needs a newer CC Switch)"
+            )
+    return notes
+
+
 def _flag_disabled_warning(table, prev_row, flag_cols, values):
     """`mcp-upsert` / `skill-upsert` set the whole `--enable-*` flag set: warn
     when that would silently disable apps that were enabled before."""
@@ -235,6 +313,7 @@ def cmd_mcp_upsert(args):
     flag_cols = enabled_flag_columns(con, "mcp_servers")
     col_names = [col for _, col in flag_cols]
     values = _flag_values(args, flag_cols)
+    notes = _unavailable_flag_notes("mcp_servers", flag_cols, args)
     existing = cur.execute("SELECT id FROM mcp_servers WHERE name=?", (args.name,)).fetchone()
     warn = None
     if existing and col_names:
@@ -267,6 +346,8 @@ def cmd_mcp_upsert(args):
     print(f"[{action}] mcp_servers: {row['name']} {_flag_summary(row, flag_cols)}".rstrip())
     if warn:
         print(warn)
+    for note in notes:
+        print(note)
     verify_no_q("mcp_servers.description", [row["description"]])
     con.close()
 
@@ -328,6 +409,7 @@ def cmd_skill_upsert(args):
     flag_cols = enabled_flag_columns(con, "skills")
     col_names = [col for _, col in flag_cols]
     values = _flag_values(args, flag_cols)
+    notes = _unavailable_flag_notes("skills", flag_cols, args)
     existing = cur.execute("SELECT id FROM skills WHERE id=?", (skill_id,)).fetchone()
     warn = None
     if existing and col_names:
@@ -370,6 +452,8 @@ def cmd_skill_upsert(args):
     )
     if warn:
         print(warn)
+    for note in notes:
+        print(note)
     verify_no_q("skills.description", [desc])
     con.close()
 
@@ -558,7 +642,7 @@ def cmd_set_flags(args):
     if missing:
         raise SystemExit(
             f"{args.table}: column(s) not present in this CCS schema: {', '.join(missing)}; "
-            "mcode columns require CC Switch 3.20.4+"
+            "upgrade CC Switch (enabled_pi needs 4.0+, enabled_mcode needs 3.20.4+)"
         )
     row = cur.execute(f"SELECT name FROM {args.table} WHERE name=?", (args.name,)).fetchone()
     if not row:
@@ -686,6 +770,26 @@ def cmd_doctor(args):
 
     settings_ids = load_settings_provider_ids(cc_home)
     print("settings currentProvider*:", {k: v for k, v in settings_ids.items() if v})
+
+    if common_config_removed(db_path):
+        print(
+            "common-config: removed in CC Switch 4.0 (schema v20) — "
+            "shared settings live in the client config file"
+        )
+    state_file = device_state_path()
+    if state_file.exists():
+        try:
+            state = json.loads(state_file.read_text(encoding="utf-8"))
+        except Exception:
+            state = {}
+        modes = []
+        for app, st in sorted((state.get("apps") or {}).items()):
+            st = st or {}
+            stack = st.get("stack") or {}
+            mode = "stack" if stack.get("enabled") else (st.get("mode") or "?")
+            modes.append(f"{app}={mode}")
+        if modes:
+            print("modes (live-state.json):", " ".join(modes))
 
     issues = collect_structural_issues(cc_home, db_path)
     if issues:
@@ -893,6 +997,25 @@ def mcp_semantic_issues(text):
                 issues.append(f"{header}: stdio MCP missing command")
             if "url" in m and m.get("command") == '""':
                 issues.append(f"{header}: url-only remote MCP written with empty stdio command")
+    return issues
+
+
+def codex_mcp_type_issues(text):
+    """Codex 0.158+ rejects a `type` key inside `[mcp_servers.*]`. CCS 4.0 no
+    longer writes it, so a surviving line marks pre-4.0 damage (the author's
+    fix note says to re-sync the entry: toggle it off/on in the MCP panel)."""
+    issues = []
+    for header, path, i, body in parse_sections(text):
+        if not path or path[0] != "mcp_servers" or len(path) != 2:
+            continue
+        for offset, line in enumerate(body):
+            s = line.strip()
+            if s and not s.startswith("#") and "=" in s and s.partition("=")[0].strip() == "type":
+                issues.append(
+                    f"{header} (line {i + 1 + offset}): `type` is rejected by Codex 0.158+ "
+                    "(CCS 4.0 no longer writes it) — re-sync the entry (MCP panel off/on) or run "
+                    "'repair --mode mcp-type'"
+                )
     return issues
 
 
@@ -1340,6 +1463,32 @@ def _insert_inline_provider_member(body, provider_id, table_lines):
     return body, False
 
 
+def repair_mcp_type(text):
+    """Strip `type = ...` lines from `[mcp_servers.<name>]` sections (Codex
+    0.158+ rejects the key; CCS 4.0 no longer writes it). Sub-tables such as
+    `[mcp_servers.<name>.env]` are left untouched."""
+    sections = parse_sections(text)
+    removed = []
+    changed = False
+    out = []
+    for header, path, i, body in sections:
+        if path and path[0] == "mcp_servers" and len(path) == 2:
+            new_body = []
+            for line in body:
+                s = line.strip()
+                if s and not s.startswith("#") and "=" in s and s.partition("=")[0].strip() == "type":
+                    changed = True
+                    removed.append(f"{header}: {s}")
+                    continue
+                new_body.append(line)
+            out.append([header, path, i, new_body])
+        else:
+            out.append([header, path, i, body])
+    if not changed:
+        return text, []
+    return _join_sections(out), [f"removed {len(removed)} type line(s): " + "; ".join(removed[:10])]
+
+
 def repair_codex_0149(text, provider_type=None):
     """Migrate Codex CLI 0.149-rejected or mis-routed shapes in a provider config.
 
@@ -1616,7 +1765,9 @@ def _pair_instructions_markers(text):
     return text
 
 
-def collect_structural_issues(cc_home, db_path, targets=("providers", "config", "common", "keys")):
+def collect_structural_issues(
+    cc_home, db_path, targets=("providers", "config", "common", "keys", "mcp-type")
+):
     issues = []
     con = None
     try:
@@ -1653,7 +1804,19 @@ def collect_structural_issues(cc_home, db_path, targets=("providers", "config", 
                         provider_type=meta.get("provider_type"),
                     ):
                         issues.append(f"provider[{r['name']}]: {iss}")
-        if "common" in targets:
+                if (
+                    "mcp-type" in targets
+                    and r["app_type"] == "codex"
+                    and isinstance(cfg, str)
+                    and cfg.strip()
+                    # CCS >= 4.0 strips `type` when writing the Codex config,
+                    # so card-level leftovers are inert there; the live config
+                    # below is still audited on every schema.
+                    and not schema_at_least(db_path, 20)
+                ):
+                    for iss in codex_mcp_type_issues(cfg):
+                        issues.append(f"provider[{r['name']}]: {iss}")
+        if "common" in targets and not common_config_removed(db_path):
             for app in ("codex", "claude", "gemini"):
                 row = cur.execute(
                     "SELECT value FROM settings WHERE key=?",
@@ -1674,6 +1837,9 @@ def collect_structural_issues(cc_home, db_path, targets=("providers", "config", 
                 text = ""
             for iss in find_header_issues(text, is_provider_config=False):
                 issues.append(f"config.toml: {iss}")
+            if "mcp-type" in targets:
+                for iss in codex_mcp_type_issues(text):
+                    issues.append(f"config.toml: {iss}")
     return issues
 
 
@@ -1939,12 +2105,15 @@ def cmd_repair(args):
         moved = []
         removed = []
         c149 = []
+        mcp_type = []
         if mode in ("header-order", "both"):
             new_text, moved = repair_header_order(new_text)
         if mode == "live-only":
             new_text, removed = strip_live_only_sections(new_text)
         if mode in ("codex-0149", "both"):
             new_text, c149 = repair_codex_0149(new_text)
+        if mode == "mcp-type":
+            new_text, mcp_type = repair_mcp_type(new_text)
         if mode == "codex-key":
             print("  codex-key: only applies to --target provider (the key lives in the provider row)")
         changed = new_text != text
@@ -1955,6 +2124,8 @@ def cmd_repair(args):
             print("  removed:", ", ".join(removed[:30]))
         if c149:
             print("  codex-0149:", "; ".join(c149[:30]))
+        if mcp_type:
+            print("  mcp-type:", "; ".join(mcp_type[:10]))
         if changed and apply:
             backup_file(path, "repair")
             path.write_text(new_text, encoding="utf-8")
@@ -1984,12 +2155,15 @@ def cmd_repair(args):
             c149 = []
             key_msg = None
             key_changed = False
+            mcp_type = []
             if mode in ("header-order", "both"):
                 new_cfg, moved = repair_header_order(new_cfg)
             if mode in ("live-only", "both"):
                 new_cfg, removed = strip_live_only_sections(new_cfg)
             if mode in ("codex-0149", "both"):
                 new_cfg, c149 = repair_codex_0149(new_cfg, provider_type=pmeta.get("provider_type"))
+            if mode == "mcp-type":
+                new_cfg, mcp_type = repair_mcp_type(new_cfg)
             if mode == "codex-key":
                 if row["category"] == "official" or (
                     (pmeta.get("provider_type") or "").strip().lower()
@@ -2010,6 +2184,8 @@ def cmd_repair(args):
                 print("  codex-0149:", "; ".join(c149[:30]))
             if key_msg:
                 print("  codex-key:", key_msg)
+            if mcp_type:
+                print("  mcp-type:", "; ".join(mcp_type[:10]))
             if changed and apply:
                 backup_db(cc_home, db_path, "repair-provider")
                 obj["config"] = new_cfg
@@ -2020,6 +2196,8 @@ def cmd_repair(args):
                 con.commit()
                 print("  backup + applied")
         elif target == "common":
+            if common_config_removed(db_path):
+                raise SystemExit(COMMON_CONFIG_REMOVED_MSG)
             app_type = args.app_type
             value = get_snippet(con, app_type)
             new_value = value
@@ -2049,6 +2227,8 @@ def cmd_repair(args):
 
 def cmd_common_config(args):
     cc_home, db_path = resolve_paths(args)
+    if common_config_removed(db_path):
+        raise SystemExit(COMMON_CONFIG_REMOVED_MSG)
     app_type = args.app_type
     sub = args.cc_cmd
     if app_type not in COMMON_CONFIG_APP_TYPES:
@@ -2176,7 +2356,7 @@ def build_parser():
     def add_bool_flags(sp):
         for flag in (
             "enable_codex", "enable_claude", "enable_gemini", "enable_opencode",
-            "enable_hermes", "enable_grokbuild", "enable_mcode",
+            "enable_hermes", "enable_grokbuild", "enable_mcode", "enable_pi",
         ):
             sp.add_argument(f"--{flag.replace('_', '-')}", dest=flag, action="store_true", default=False)
 
@@ -2237,7 +2417,7 @@ def build_parser():
     f = sub.add_parser("set-flags", description="Toggle enabled_* flags for an existing mcp_servers/skills row without touching other fields")
     f.add_argument("--table", required=True, choices=("mcp_servers", "skills"))
     f.add_argument("--name", required=True)
-    for key in ("codex", "claude", "gemini", "opencode", "hermes", "grokbuild", "mcode"):
+    for key in ("codex", "claude", "gemini", "opencode", "hermes", "grokbuild", "mcode", "pi"):
         f.add_argument(f"--{key}", type=int, choices=(0, 1), default=None, help="1 = enable, 0 = disable")
     f.set_defaults(func=cmd_set_flags)
 
@@ -2261,9 +2441,10 @@ def build_parser():
     rp.add_argument("--target", required=True, choices=("config.toml", "provider", "common"))
     rp.add_argument(
         "--mode",
-        choices=("header-order", "live-only", "both", "codex-0149", "codex-key"),
+        choices=("header-order", "live-only", "both", "codex-0149", "codex-key", "mcp-type"),
         default="both",
-        help="codex-key restores auth.OPENAI_API_KEY from the provider table (provider target only)",
+        help="codex-key restores auth.OPENAI_API_KEY (provider target only); mcp-type strips "
+             "`type` lines that Codex 0.158+ rejects",
     )
     rp.add_argument("--apply", action="store_true", help="write changes (with automatic backup)")
     rp.add_argument("--provider-id")

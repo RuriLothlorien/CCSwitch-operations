@@ -123,7 +123,7 @@ python $S set-flags --table mcp_servers --name my-server --claude 1 --codex 1
 python $S set-flags --table skills --name my-skill --claude 0
 ```
 
-支持的开关：`--codex` `--claude` `--gemini` `--opencode` `--hermes` `--grokbuild`。
+支持的开关：`--codex` `--claude` `--gemini` `--opencode` `--hermes` `--grokbuild` `--mcode`（3.20.4+）`--pi`（仅 `mcp_servers`，CCS 4.0+）。`mcp-upsert` / `skill-upsert` 的 `--enable-*` 是全量标志集，单个开关请用 `set-flags`。
 
 ## 安装技能到各应用（复制/链接）
 
@@ -158,6 +158,8 @@ DASHSCOPE_AUTH = "Bearer <key>"
 ```json
 {"command":"npx","args":["-y","mcp-remote","https://example.com/WebSearch/mcp","--header","Authorization:${DASHSCOPE_AUTH}","--transport","http-first"],"type":"stdio","env":{"DASHSCOPE_AUTH":"Bearer <key>"}}
 ```
+
+> 面板 JSON 里的 `type` 由 CCS 按应用翻译；**Codex 0.158+ 不接受 `[mcp_servers.*]` 里的 `type`**（CCS 4.0 写入时会剥离）。手写 Codex 的 provider config / live config 时不要带 `type`，live 里残留旧值用 `repair --mode mcp-type` 清理。
 
 codex provider 的 `settings_config.config` 文本：追加与 config.toml 相同的 TOML 块。
 
@@ -245,7 +247,30 @@ python scripts/ccs_db.py set-flags --table skills --name my-skill --mcode 1
 
 边界：mcode 供应商是 `~/.minimax/config.yaml` 的 YAML `custom_provider`，`provider-block` / `provider-env` / `provider-set-key` 会明确拒绝（请走 CCS 界面）；数据目录按 `MINIMAX_DATA_DIR` → `MAVIS_DATA_DIR` → `~/.minimax` 解析；MCP/Skills 默认对 mcode 关闭，开启后 CCS 才写 `~/.minimax`。注意 `mcp-upsert` / `skill-upsert` 的 `--enable-*` 是**全量标志集**（未传的会被置 0，关掉已启用项时工具会给出警告），单个开关请用 `set-flags`。
 
-### CC Switch 3.20.4 升级后复核
+### CC Switch 4.0 升级后复核
+
+```bash
+python scripts/ccs_db.py doctor                                    # schema v20 + 各应用模式（直连/路由/聚合）
+python scripts/ccs_db.py check --strict
+python scripts/ccs_db.py doctor --audit
+python scripts/ccs_db.py repair --target config.toml --mode mcp-type    # dry-run：清 live 里的 MCP `type`
+```
+
+要点：v19→v20 迁移后 3.x 打不开数据库（确认升级前备份还在）；Codex 模型目录/会话分组的修复要切换一次供应商才生效；已有 MCP 配置重新同步一次清掉旧 `type`；时间 MCP 预设改用 `uvx mcp-server-time`；`common-config` 已移除（见下方“通用配置维护”）。
+
+### MCP `type` 与 Pi 同步（4.0）
+
+```bash
+# Codex 0.158+ 不接受 [mcp_servers.*] 里的 type；live config 里若残留，直接清掉
+python scripts/ccs_db.py repair --target config.toml --mode mcp-type
+python scripts/ccs_db.py repair --target provider --provider-id <id> --mode mcp-type --apply
+
+# Pi MCP（CCS 4.0+；只写连接字段，关同步=在 Pi 里停用不删条目）
+python scripts/ccs_db.py mcp-upsert --name <name> --config-file server_config.json --enable-pi
+python scripts/ccs_db.py set-flags --table mcp_servers --name <name> --pi 1
+```
+
+### CC Switch 3.20.4 升级后复核（历史）
 
 ```bash
 python scripts/ccs_db.py doctor --audit
@@ -280,46 +305,33 @@ python scripts/ccs_db.py repair --target provider --provider-id <id> --mode code
 > python -c "import os; print(os.path.exists(os.path.expanduser('~/.codex/auth.json')))"
 > ```
 
-## 通用配置维护（v1.1.0+）
+## 通用配置维护（仅 CCS ≤ 3.20.4）
+
+**CC Switch 4.0 已移除“通用配置片段”**：共享设置直接留在客户端配置文件里并跨切换保留，`settings.common_config_*` 与 `providers.meta.common_config_enabled` 只是升级遗留。本技能在 schema ≥ v20 上会**拒绝所有 `common-config` 子命令**并提示新做法：
 
 ```bash
-# 只读
+# 共享键（所有供应商都生效）：写客户端 live 配置，例如 ~/.codex/config.toml 的顶层键/表
+# 供应商专属字段：写卡片
+python scripts/ccs_db.py provider-set-key --app-type codex --provider-id <id> --key <key> --value '<value>'
+python scripts/ccs_db.py provider-block --app-type codex --provider-id <id> --section "[mcp_servers.foo]" --block-file block.toml --replace
+```
+
+写 live 配置前按安全流程停 CCS；4.0 的写入器只替换关键字段，其余 live 内容会保留。临时在客户端里选的模型/推理强度，切走再切回会恢复为供应商设定值。
+
+### CCS ≤ 3.20.4 的旧用法（历史）
+
+```bash
 python scripts/ccs_db.py common-config get --app-type codex
-python scripts/ccs_db.py common-config check --app-type codex
 python scripts/ccs_db.py common-config status --app-type codex
-
-# 修改（必须显式调用；默认 dry-run，--apply 写入并自动备份）
-python scripts/ccs_db.py common-config set --app-type codex --content-file snippet.toml --apply
-python scripts/ccs_db.py common-config set-key --app-type codex --key model_reasoning_effort --value '"max"' --apply
-python scripts/ccs_db.py common-config remove-key --app-type codex --key web_search --apply
-
-# 提取（用户显式调用；执行后自动打勾）
-python scripts/ccs_db.py common-config extract --app-type codex --provider-id <id> --apply
-
-# 打勾 / 取消打勾（enable 前自动做幂等审查）
-python scripts/ccs_db.py common-config enable --app-type codex --provider-id <id> --apply
-python scripts/ccs_db.py common-config disable --app-type codex --provider-id <id> --apply
-```
-
-交互说明：`set*` 写完后在 TTY 下询问“是否同步当前配置并打勾”；非交互默认不同步，可用 `--sync-and-enable` 显式要求（同样先过幂等审查）。
-
-### 两边一起改（canonical workflow）
-
-当需要“配置和通用配置都要更新”时，唯一推荐姿势：
-
-```bash
-# 单键
 python scripts/ccs_db.py common-config set-key --app-type codex --key <key> --value '<value>' --apply --sync-and-enable
-# 整体
-python scripts/ccs_db.py common-config set --app-type codex --content-file snippet.toml --apply --sync-and-enable
+python scripts/ccs_db.py common-config extract --app-type codex --provider-id <id> --apply
+python scripts/ccs_db.py common-config enable --app-type codex --provider-id <id> --apply
 ```
 
-它会：① 写 snippet；② 从当前 provider config 剥离与 snippet 重复的键；③ 显式打勾（`commonConfigEnabled=true`）；④ 自动校验。
-
-**禁止**手写临时脚本直接 `UPDATE providers` / 直改 `cc-switch.db`；DB 写入一律走 `ccs_db.py` 子命令。规范终态：snippet 持有这些键，provider config 不重复持有。
+交互说明：`set*` 写完后在 TTY 下询问“是否同步当前配置并打勾”；非交互默认不同步，可用 `--sync-and-enable` 显式要求（同样先过幂等审查）。**禁止**手写临时脚本直改 `cc-switch.db`；DB 写入一律走 `ccs_db.py`。
 
 ### 范围确认（重要）
 
-“同步”由 AI **自行判断识别变更对象**（配置 / 技能 / 模板，结合上下文与待同步差异），没有问题不要轻易问用户；只有确无法识别时才询问。识别结果若包含配置，则落到“配置变更铁律”：未明确范围时默认 provider-first（`provider-set-key`），改完询问是否 `common-config extract` 到模板；只有用户明确提到“通用配置 / common-config / 模板”才直接操作 snippet。**不要把对象 A 的同步当作对象 B 的同步**（技能 ≠ 配置 ≠ 模板，双向适用）。
+“同步”由 AI **自行判断识别变更对象**（配置 / 技能 / 模板，结合上下文与待同步差异），没有问题不要轻易问用户；只有确无法识别时才询问。识别结果若包含配置，则落到“配置变更铁律”：未明确范围时默认 provider-first（`provider-set-key`）；CCS ≤ 3.20.4 改完再询问是否 `common-config extract` 到模板，4.0+ 改为提示共享键写客户端 live 配置。只有用户明确提到“通用配置 / common-config / 模板”（且 CCS ≤ 3.20.4）才直接操作 snippet。**不要把对象 A 的同步当作对象 B 的同步**（技能 ≠ 配置 ≠ 模板，双向适用）。
 
 任何不确定处，先认真阅读本技能（SKILL.md 与 references/）再行动，**不要自由发挥**；若请求确实超出本技能范围，明确告知用户并给出建议行动。

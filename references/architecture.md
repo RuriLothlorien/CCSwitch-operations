@@ -1,6 +1,6 @@
 # CC Switch 架构速查
 
-## 数据库 `<cc-home>/cc-switch.db`（CCS 3.20.4 = schema v19；CCS 3.20.1–3.20.3 = schema v18；CCS 3.20.0 = schema v17）
+## 数据库 `<cc-home>/cc-switch.db`（CCS 4.0.x = schema v20；CCS 3.20.4 = schema v19；CCS 3.20.1–3.20.3 = schema v18；CCS 3.20.0 = schema v17）
 
 `cc-home` 解析顺序：`CC_SWITCH_HOME` 环境变量 → `~/.cc-switch`。
 
@@ -11,7 +11,7 @@
 | providers | 各应用下的供应商 | app_type(10 个应用), settings_config(JSON：`config` TOML 文本 / `env` / `modelCatalog`；mcode 为 `name/kind/enabled/api/options/models`), provider_type, is_current, in_failover_queue, cost_multiplier, limit_daily_usd, limit_monthly_usd, meta |
 | prompts | 全局提示词 | app_type(codex/claude/claude-desktop/gemini/grokbuild/opencode/openclaw/hermes/pi), name(`全局`), content, enabled |
 | skills | skill 管理 | id(`local:<name>`), name, directory, repo_owner/repo_name/repo_branch/readme_url, enabled_codex/claude/gemini/opencode/hermes/grokbuild/mcode（v19 新增 `enabled_mcode`）, installed_at, content_hash |
-| mcp_servers | MCP 面板 | id(slug), name, server_config(JSON), description, tags, enabled_codex/claude/gemini/opencode/hermes/grokbuild/mcode（v19 新增 `enabled_mcode`）。只放用户自建/CCS 管理的服务器；官方/内置 MCP 故意不在此表 |
+| mcp_servers | MCP 面板 | id(slug), name, server_config(JSON), description, tags, enabled_codex/claude/gemini/opencode/hermes/grokbuild/mcode/pi（v19 新增 `enabled_mcode`，v20 新增 `enabled_pi`）。只放用户自建/CCS 管理的服务器；官方/内置 MCP 故意不在此表 |
 | settings | 通用配置 | key(common_config_codex/common_config_claude/claude_desktop_gateway_token/official_providers_seeded/...), value |
 
 ### CCS 自管表（不要手改）
@@ -37,6 +37,11 @@
 - **Codex `requires_openai_auth`（3.20.2）**：代理托管 OAuth 卡（`providers.meta.provider_type` = `xai_oauth` / `github_copilot`）的活跃表被强制为 `false`（令牌由本地代理逐请求注入）；接管写入会按 Codex 观察到的登录状态覆盖该标志（`file` 跟随 auth.json、`ephemeral` 记未登录、`keyring`/`auto` 保留原值）；**Codex OAuth 例外**——官方登录即其凭据。
 - **Codex 密钥存储（3.20.1+，3.20.4 修复清空缺陷）**：DB 侧规范位置是 `providers.settings_config.auth.OPENAI_API_KEY`，live 侧是 `[model_providers.<id>].experimental_bearer_token`；3.20.4 之前编辑/切走可能把 auth 清空（#7434），已在 3.20.4 修复但旧值不恢复。本技能 `check --strict` / `doctor --audit` 报告“auth 为空但 provider 表仍有 token”的可恢复形态，`repair --target provider --mode codex-key --apply` 从 provider 表回填（官方卡与代理托管 OAuth 卡跳过）。
 - **MiniMax Code（3.20.4，`mcode`）**：累加模式；供应商是 `~/.minimax/config.yaml` 里的 `custom_provider` 条目（DB `settings_config` 为 JSON：`name/kind/enabled/api/options/models`）；MCP ↔ `~/.minimax/mcp.json`；Skills → `~/.minimax/skills/`；提示词 → `~/.minimax/AGENTS.md`（单条 ≤32 KiB，UTF-8 字节）。数据目录按 `MINIMAX_DATA_DIR` → `MAVIS_DATA_DIR` → `~/.minimax` 解析。CCS 不参与它的本地代理接管、故障转移、托盘、通用配置与 Profiles；默认模型、登录与会话删除也归 MiniMax 自己。
+- **三种模式（4.0）**：每个支持代理的应用处于 **直连 / 路由 / 聚合（Stack）** 之一。聚合仅 Claude Code 与 Codex：把多家供应商的模型发布进客户端 `/model`，按模型经本地路由分发，无故障转移；状态在设备本地 `~/.cc-switch/live-state.json`（**不在 `CC_SWITCH_HOME` 下、不同步**），Claude 各家的发布模型在 `providers.meta.stackModels`。`doctor` 会读取该文件显示各应用当前模式。
+- **配置写入（4.0 重写）**：切供应商只替换地址/Key/模型等关键字段，其余 live 内容（顶层键、`[plugins]`/`[projects]`、`[mcp_servers.*]`、注释、标记）逐字节保留；供应商编辑器的“切换后预览”由 `editor_view` 投影生成，不再做整文 parse→stringify。
+- **通用配置片段（4.0 移除）**：`settings.common_config_*` 与 `providers.meta.common_config_enabled` 只是升级遗留，4.0 不再读取；共享设置应直接写在客户端 live 配置里。
+- **Pi MCP（4.0）**：Pi 1.0 内置 MCP，配置在 `~/.pi/agent/mcp.json`（`enabled_pi`）；只写连接字段，关同步=停用不删条目。
+- **Codex 会话压缩（4.0.7）**：开关直接改 `config.toml`，写入 `[features] local_thread_store_compression = true`；Codex 启动时把 7 天以上没动过的会话压成同名 `.jsonl.zst`（CCS 不另存该设置；直接读 `.jsonl` 的第三方工具可能读不到压缩会话）。
 - **恢复 `.db` 备份（3.20 行为变化）**：恢复后会按新库**重写所有受管应用的 live 配置（Pi 除外）**，而旧版只改数据库——恢复后仍需复核 MCP 三处一致。
 
 ## 受管应用（CCS 3.20.4 共 10 个）与 Skills 目录
