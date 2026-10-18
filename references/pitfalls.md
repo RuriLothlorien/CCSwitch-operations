@@ -51,7 +51,9 @@
 | MiniMax Code（mcode）提示词写入失败 / CCS 找不到数据目录 | 提示词按 UTF-8 字节限 32 KiB；数据目录只认 `MINIMAX_DATA_DIR`/`MAVIS_DATA_DIR` 环境变量（都没有时用 `~/.minimax`） | 用 `prompt-set --app-type mcode`（本技能会先校验 32 KiB）；自定义目录时启动 CCS 也要带同一个环境变量；删除被 `defaultModel` 引用的供应商前先在 MiniMax Code 里换默认模型 |
 | CCS 4.0 里 `common-config` 改了没效果 | 4.0 移除了“通用配置片段”：DB 里的 `common_config_*` 与 `providers.meta.common_config_enabled` 只是升级遗留 | 本技能在 schema v20 上会拒绝所有 `common-config` 命令；共享键写进客户端 live 配置（如 `~/.codex/config.toml`），供应商专属字段写卡片（`provider-block` / `provider-set-key` / `provider-env`） |
 | Codex 0.158+ 因 MCP `type` 字段报错/起不来 | 旧版 CCS/手动配置把 `type = "stdio"` 写进了 `[mcp_servers.*]`；4.0 写入时会剥离，但 live 里可能残留旧值 | 先看 `check --strict`（live config 会被审计）；`repair --target config.toml --mode mcp-type [--apply]` 或面板关/开重写；不要在 Codex 的 provider config / live config 里手写 `type` |
-| Codex 聚合模式下子 agent 读不到任务 | 新版子 agent 工具把任务加密给主 agent 的供应商，跨供应商解不开 | 在「设置 → 应用配置 → Codex」打开「聚合模式下子 agent 用经典工具」（`settings.json: codexStackClassicSubagents`），改完重启 Codex；代价是没有 `followup_task` 等新工具 |
+| Codex 聚合模式下子 agent 读不到任务 | 新版子 agent 工具把任务加密给主 agent 的供应商，跨供应商解不开 | 在聚合设置里打开「聚合模式下子 agent 用经典工具」（`settings.json: codexStackClassicTools`，4.0.13 起默认 true），改完重启 Codex；代价是没有 `followup_task` 等新工具 |
+| Windows 更新 CCS 后，隐藏应用、配置目录覆盖等设置回到默认值 | 4.0.15 之前 `settings.json` 直接覆盖写；新内容更短时旧尾部残留，随后整份解析失败并回落默认值 | 升级 4.0.15+；若首启出现 `settings.json.broken-<time>.bak`，从备份核对并重设；已丢失的旧设置不会自动找回 |
+| Claude Desktop 切换直连/路由/聚合后没有变化 | Desktop 只在启动时读取配置 | 完全退出并重启 Claude Desktop；路由/聚合模式还需保持 CC Switch 运行 |
 | 打开「压缩 Codex 历史会话」后别的工具读不到会话 | 7 天以上会话被压成 `.jsonl.zst`，直接读 raw `.jsonl` 的工具看不到 | 属于预期行为：压缩会话在 CCS 里照常可读，Codex 继续时会自动解压；需要被第三方读取时不要开该开关 |
 | 升级 4.0 后旧触发的问题还在 | 部分修复（Codex 模型目录、会话分组、MCP `type`）要等 CCS 下一次写入才生效 | 升级后切换一次供应商；已有 MCP 配置重新同步一次；时间 MCP 预设改为 `uvx mcp-server-time`（存量需手改） |
 | 4.0 里找不到设置项 | 4.0 移除了供应商成本倍率、连通性检查高级设置、Claude 的 Teammates 与最大强度 | 已写入配置的环境变量不会被自动删除；需要时用官方端点的默认值或在会话里用 `/effort max` |

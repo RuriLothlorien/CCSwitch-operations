@@ -46,7 +46,7 @@ open -a "CC Switch"   # macOS；Windows 上按安装位置启动
 ## 常用 DB 操作（推荐：内置脚本）
 
 ```powershell
-python $S doctor                 # 打印解析出的路径、schema、各应用供应商
+python $S doctor                 # 路径、schema、供应商、直连/路由/聚合与健康告警
 python $S check                  # 检查全库中文是否出现可疑 '?'
 ```
 
@@ -189,7 +189,7 @@ python scripts/ccs_db.py check --strict
 python scripts/ccs_db.py doctor --audit
 python scripts/ccs_db.py doctor --compare-backup backups/db_backup_xxx.db
 
-# 写操作前快照 / 之后对比
+# 写操作前快照 / 之后对比（快照含 DB、config.toml、settings.json、live-state.json）
 python scripts/ccs_db.py snapshot
 python scripts/ccs_db.py diff <snapshot-dir>
 
@@ -220,6 +220,8 @@ python scripts/ccs_db.py repair --target config.toml --mode codex-0149 --apply
 
 说明：`codex-0149` 会改名遗留保留表（活跃路由且自带密钥时同步改写 `model_provider`）、回填缺失的 `name`、把选择器缺省/`openai` 时真正生效的顶层 `openai_base_url` 迁移为 `[model_providers.cc-switch(-N)]`，并写入 `model_provider` + `wire_api = "responses"` + `base_url` + `experimental_bearer_token`——与 CCS 3.20.3 自身的规范化形态一致；用户已有的 `cc-switch` 表不会被覆盖（顺延 `cc-switch-2`…）。单行内联 `model_providers = { ... }` 会就地扩展，多行内联表只提示、不写坏 TOML。选择器指向自带表时，顶层 `openai_base_url` 是惰性残留，保持原样。对代理托管 OAuth 卡（`providers.meta.provider_type` = `xai_oauth` / `github_copilot`）还会把活跃表上的 `requires_openai_auth` 改为 `false`（与 CCS 3.20.2 一致）。空卡/无凭据/缺表的普通第三方卡仍然只提示，不会自动造表。
 
+CC Switch 4.0.13+ 接受双引号、单引号及带空格的 provider 表头（如 `[model_providers."my provider"]`）。本技能 v1.3.1+ 在比较和修复前会解码表头键，回填 `name` 时重新生成合法 TOML 字符串；修复后仍应运行 `check --strict` 与 `tomllib` 复核。
+
 ### Codex 密钥恢复（3.20.4，#7434）
 
 ```bash
@@ -247,16 +249,16 @@ python scripts/ccs_db.py set-flags --table skills --name my-skill --mcode 1
 
 边界：mcode 供应商是 `~/.minimax/config.yaml` 的 YAML `custom_provider`，`provider-block` / `provider-env` / `provider-set-key` 会明确拒绝（请走 CCS 界面）；数据目录按 `MINIMAX_DATA_DIR` → `MAVIS_DATA_DIR` → `~/.minimax` 解析；MCP/Skills 默认对 mcode 关闭，开启后 CCS 才写 `~/.minimax`。注意 `mcp-upsert` / `skill-upsert` 的 `--enable-*` 是**全量标志集**（未传的会被置 0，关掉已启用项时工具会给出警告），单个开关请用 `set-flags`。
 
-### CC Switch 4.0 升级后复核
+### CC Switch 4.0.15 升级后复核
 
 ```bash
-python scripts/ccs_db.py doctor                                    # schema v20 + 各应用模式（直连/路由/聚合）
+python scripts/ccs_db.py doctor                                    # schema v20 + 模式 + JSON/auth 安全告警
 python scripts/ccs_db.py check --strict
 python scripts/ccs_db.py doctor --audit
 python scripts/ccs_db.py repair --target config.toml --mode mcp-type    # dry-run：清 live 里的 MCP `type`
 ```
 
-要点：v19→v20 迁移后 3.x 打不开数据库（确认升级前备份还在）；Codex 模型目录/会话分组的修复要切换一次供应商才生效；已有 MCP 配置重新同步一次清掉旧 `type`；时间 MCP 预设改用 `uvx mcp-server-time`；`common-config` 已移除（见下方“通用配置维护”）。
+要点：4.0.9–4.0.15 的 schema 都是 v20；v19→v20 迁移后 3.x 打不开数据库（确认升级前备份还在）；Codex 模型目录/会话分组的修复要切换一次供应商才生效；已有 MCP 配置重新同步一次清掉旧 `type`；时间 MCP 预设改用 `uvx mcp-server-time`；`common-config` 已移除（见下方“通用配置维护”）。Claude Desktop 从 4.0.13 起支持直连/路由/聚合，切换后重启 Desktop；跨供应商 Codex 子代理开关是 `codexStackClassicTools`。`doctor` 警告 `preserveCodexOfficialAuthOnSwitch` 未开启时，若使用依赖 `auth.json` 的 Codex 构建，应在 CCS 设置中打开。
 
 ### MCP `type` 与 Pi 同步（4.0）
 

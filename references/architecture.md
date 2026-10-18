@@ -22,13 +22,13 @@
 
 - `currentProviderCodex` / `currentProviderClaude` / `currentProviderClaudeDesktop`（启用 Gemini 后还有 `currentProviderGemini`）——`ccs_db.py` 从这里 + `providers.is_current` 动态解析供应商 ID。
 - `skillSyncMethod`: `auto`（默认，优先 symlink、失败回退 copy）/ `symlink` / `copy`；`skillStorageLocation`: `cc_switch`（默认，源在 `<cc-home>/skills`）/ `unified`。
-- 其他：`visibleApps`、`enableLocalProxy`、`enableFailoverToggle`、`preserveCodexOfficialAuthOnSwitch`、`unifyCodexSessionHistory`、`enableClaudePluginIntegration`、`preferredTerminal` 等。
+- 其他：`visibleApps`、`enableLocalProxy`、`enableFailoverToggle`、`preserveCodexOfficialAuthOnSwitch`、`unifyCodexSessionHistory`、`codexStackClassicTools`、`enableClaudePluginIntegration`、`preferredTerminal` 等。4.0.15 会在读取到截断/BOM/尾部损坏时先备份 `settings.json.broken-<time>.bak`，再尽力保留可解析字段；`doctor` 对无法解析的文件给出告警。
 
 ## 生效链路
 
 - **Codex config.toml** ← CCS 从当前 codex provider 的 `settings_config.config` 文本生成。直接改 config.toml 后，必须同步改 provider 的 config 文本，否则 CCS 下次切换供应商会回写覆盖。
-- **Claude Code settings.json** ← claude provider 的 `settings_config.env` + `settings.common_config_claude`。
-- **Claude Desktop 3P**：`%LOCALAPPDATA%\Claude-3p\claude_desktop_config.json`（MCP/偏好）+ `configLibrary\...157210.json`（网关/模型/toolSearchEnabled）。CCS 会自动维护这些文件，但不负责 MCP/Skills 内容（3.20 源码仍显式跳过 Claude Desktop）。
+- **Claude Code settings.json** ← claude provider 的 `settings_config.env`；共享设置直接保存在 live `settings.json`，4.0 已不再从 `common_config_claude` 合并。
+- **Claude Desktop 3P**：`%LOCALAPPDATA%\Claude-3p\claude_desktop_config.json`（MCP/偏好）+ `configLibrary\...157210.json`（网关/模型/toolSearchEnabled）。CCS 4.0.13 起自动维护直连/路由/聚合所需的配置，但 Claude Desktop 仍不在 CCS 的 MCP 同步矩阵中；3P Skills 继续按 manifest 手动同步。
 - **Claude Desktop 1P**：`%APPDATA%\Claude\claude_desktop_config.json`。
 - **模型目录**：`~/.codex/cc-switch-model-catalog.json`（CCS 从供应商模板生成；DeepSeek 模板需保持 `supports_search_tool:false` 以规避工具不可见问题）。3.20 的目录支持逐模型思考档位；`model_catalog_json` 指针只在缺失或已是 CCS 自有文件名时才被认领。
 - **Codex 3.20.1+ config-only 切换**：第三方密钥写进 `[model_providers.*]` 表的 `experimental_bearer_token`（属正常形态），`auth.json` 仅存官方 ChatGPT 登录；“非接管切换时保留官方登录”关闭时切换第三方会删除 `auth.json`（3.20.2 只修了接管路径，3.20.3 直切行为不变）。
@@ -37,7 +37,7 @@
 - **Codex `requires_openai_auth`（3.20.2）**：代理托管 OAuth 卡（`providers.meta.provider_type` = `xai_oauth` / `github_copilot`）的活跃表被强制为 `false`（令牌由本地代理逐请求注入）；接管写入会按 Codex 观察到的登录状态覆盖该标志（`file` 跟随 auth.json、`ephemeral` 记未登录、`keyring`/`auto` 保留原值）；**Codex OAuth 例外**——官方登录即其凭据。
 - **Codex 密钥存储（3.20.1+，3.20.4 修复清空缺陷）**：DB 侧规范位置是 `providers.settings_config.auth.OPENAI_API_KEY`，live 侧是 `[model_providers.<id>].experimental_bearer_token`；3.20.4 之前编辑/切走可能把 auth 清空（#7434），已在 3.20.4 修复但旧值不恢复。本技能 `check --strict` / `doctor --audit` 报告“auth 为空但 provider 表仍有 token”的可恢复形态，`repair --target provider --mode codex-key --apply` 从 provider 表回填（官方卡与代理托管 OAuth 卡跳过）。
 - **MiniMax Code（3.20.4，`mcode`）**：累加模式；供应商是 `~/.minimax/config.yaml` 里的 `custom_provider` 条目（DB `settings_config` 为 JSON：`name/kind/enabled/api/options/models`）；MCP ↔ `~/.minimax/mcp.json`；Skills → `~/.minimax/skills/`；提示词 → `~/.minimax/AGENTS.md`（单条 ≤32 KiB，UTF-8 字节）。数据目录按 `MINIMAX_DATA_DIR` → `MAVIS_DATA_DIR` → `~/.minimax` 解析。CCS 不参与它的本地代理接管、故障转移、托盘、通用配置与 Profiles；默认模型、登录与会话删除也归 MiniMax 自己。
-- **三种模式（4.0）**：每个支持代理的应用处于 **直连 / 路由 / 聚合（Stack）** 之一。聚合仅 Claude Code 与 Codex：把多家供应商的模型发布进客户端 `/model`，按模型经本地路由分发，无故障转移；状态在设备本地 `~/.cc-switch/live-state.json`（**不在 `CC_SWITCH_HOME` 下、不同步**），Claude 各家的发布模型在 `providers.meta.stackModels`。`doctor` 会读取该文件显示各应用当前模式。
+- **三种模式（4.0）**：每个支持代理的应用处于 **直连 / 路由 / 聚合（Stack）** 之一。聚合从 4.0.13 起支持 Claude Code、Codex 与 Claude Desktop：把多家供应商的模型发布进客户端模型列表，按模型经本地路由分发，无故障转移；状态在设备本地 `~/.cc-switch/live-state.json`（**不在 `CC_SWITCH_HOME` 下、不同步**），Claude Code 各家的发布模型在 `providers.meta.stackModels`。文件里的内部枚举是 `direct/proxy`，聚合由 `stack.enabled` 表示；CCS 界面和本技能 `doctor` 把 `proxy` 显示为 `route`。
 - **配置写入（4.0 重写）**：切供应商只替换地址/Key/模型等关键字段，其余 live 内容（顶层键、`[plugins]`/`[projects]`、`[mcp_servers.*]`、注释、标记）逐字节保留；供应商编辑器的“切换后预览”由 `editor_view` 投影生成，不再做整文 parse→stringify。
 - **通用配置片段（4.0 移除）**：`settings.common_config_*` 与 `providers.meta.common_config_enabled` 只是升级遗留，4.0 不再读取；共享设置应直接写在客户端 live 配置里。
 - **Pi MCP（4.0）**：Pi 1.0 内置 MCP，配置在 `~/.pi/agent/mcp.json`（`enabled_pi`）；只写连接字段，关同步=停用不删条目。

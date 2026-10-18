@@ -27,7 +27,7 @@ Subcommands:
   doctor          print resolved paths, schema, and per-app provider status
   doctor --audit  read-only three-way consistency audit
   doctor --compare-backup <db>  diff current DB against a backup
-  snapshot        save a point-in-time snapshot (DB + config.toml + settings)
+  snapshot        save a point-in-time snapshot (DB + config.toml + settings + live-state)
   diff            show changes since a snapshot
   repair          dry-run/apply fixes for header order / live-only sections
                   (codex-0149 also rewrites legacy openai_base_url reroutes into
@@ -221,6 +221,12 @@ def load_settings_provider_ids(cc_home: Path) -> dict:
             s = json.load(f)
     except Exception:
         return {}
+    if not isinstance(s, dict):
+        return {}
+    return settings_provider_ids_from_obj(s)
+
+
+def settings_provider_ids_from_obj(s: dict) -> dict:
     return {
         "codex": s.get("currentProviderCodex"),
         "claude": s.get("currentProviderClaude"),
@@ -768,8 +774,31 @@ def cmd_doctor(args):
         print(f"  {row['app_type']}: total={row['n']} current={row['current_n'] or 0}")
     con.close()
 
-    settings_ids = load_settings_provider_ids(cc_home)
-    print("settings currentProvider*:", {k: v for k, v in settings_ids.items() if v})
+    settings_obj = None
+    if settings_file.exists():
+        try:
+            with open(settings_file, "r", encoding="utf-8-sig") as f:
+                settings_obj = json.load(f)
+            if not isinstance(settings_obj, dict):
+                raise ValueError("top-level JSON value is not an object")
+        except Exception as exc:
+            settings_obj = None
+            print(
+                f"[warn] settings.json is not valid JSON ({type(exc).__name__}: {exc}); "
+                "CC Switch 4.0.15 repairs incomplete files on startup and keeps a "
+                "settings.json.broken-<time>.bak copy. Provider-ID resolution falls back to "
+                "providers.is_current until then."
+            )
+        else:
+            settings_ids = settings_provider_ids_from_obj(settings_obj)
+            print("settings currentProvider*:", {k: v for k, v in settings_ids.items() if v})
+            if settings_obj.get("preserveCodexOfficialAuthOnSwitch") is not True:
+                print(
+                    "[warn] preserveCodexOfficialAuthOnSwitch is not true: a direct switch to a "
+                    "third-party Codex provider may delete ~/.codex/auth.json. Some Codex desktop "
+                    "builds then fall back to the login screen; enable this guard if that build "
+                    "requires auth.json."
+                )
 
     if common_config_removed(db_path):
         print(
@@ -780,13 +809,34 @@ def cmd_doctor(args):
     if state_file.exists():
         try:
             state = json.loads(state_file.read_text(encoding="utf-8"))
-        except Exception:
+            if not isinstance(state, dict):
+                raise ValueError("top-level JSON value is not an object")
+            if not isinstance(state.get("apps") or {}, dict):
+                raise ValueError("'apps' is not a JSON object")
+        except Exception as exc:
             state = {}
+            print(
+                f"[warn] live-state.json is not valid JSON ({type(exc).__name__}: {exc}); "
+                "current direct/route/stack modes are unavailable."
+            )
         modes = []
         for app, st in sorted((state.get("apps") or {}).items()):
-            st = st or {}
+            if not isinstance(st, dict):
+                continue
             stack = st.get("stack") or {}
-            mode = "stack" if stack.get("enabled") else (st.get("mode") or "?")
+            if not isinstance(stack, dict):
+                stack = {}
+            raw_mode = st.get("mode")
+            # live-state.json stores the internal enum value "proxy"; CCS's own
+            # AppModeView exposes the same state to users as "route".
+            if raw_mode in (None, "direct"):
+                mode = "direct"
+            elif raw_mode in ("proxy", "route"):
+                mode = "stack" if stack.get("enabled") else "route"
+            elif raw_mode == "stack":
+                mode = "stack"
+            else:
+                mode = str(raw_mode)
             modes.append(f"{app}={mode}")
         if modes:
             print("modes (live-state.json):", " ".join(modes))
@@ -898,22 +948,46 @@ def _split_header(header):
     parts = []
     buf = ""
     quote = None
+    escaped = False
     for ch in s:
         if quote:
             buf += ch
-            if ch == quote:
+            if quote == '"' and ch == "\\" and not escaped:
+                escaped = True
+                continue
+            if ch == quote and not escaped:
                 quote = None
+            escaped = False
         elif ch in ("'", '"'):
             quote = ch
             buf += ch
         elif ch == ".":
-            parts.append(buf)
+            parts.append(_decode_toml_key_part(buf))
             buf = ""
         else:
             buf += ch
     if buf:
-        parts.append(buf)
+        parts.append(_decode_toml_key_part(buf))
     return tuple(parts)
+
+
+def _decode_toml_key_part(part):
+    """Decode one quoted TOML table-key part while keeping the raw header.
+
+    CC Switch 4.0.13 recognizes headers such as
+    `[model_providers."custom"]`. Structural checks compare decoded key names,
+    so quoted and bare forms behave the same; edits still use the original
+    header text stored by parse_sections.
+    """
+    value = part.strip()
+    if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+        try:
+            decoded = tomllib.loads(f"key = {value}")["key"]
+            if isinstance(decoded, str):
+                return decoded
+        except Exception:
+            pass
+    return value
 
 
 def parse_sections(text):
@@ -1548,7 +1622,7 @@ def repair_codex_0149(text, provider_type=None):
             if is_active_route and _table_has_own_key(m):
                 follow_rename_pid = new_pid
         if "name" not in m and new_path[1] != CODEX_RESERVED_BEDROCK_ID:
-            body = list(body) + [f'name = "{new_path[1]}"']
+            body = list(body) + [f"name = {json.dumps(new_path[1], ensure_ascii=False)}"]
             changes.append(f"backfilled name for {new_header}")
         if (
             proxy_oauth
@@ -2068,6 +2142,16 @@ def _compare_db(cur_db, snap_db):
         ))
         print("== config.toml ==")
         print("\n".join(d) if d else "  (unchanged)")
+    state_a = snap_db.parent / "live-state.json"
+    state_b = device_state_path()
+    if state_a.exists() and state_b.exists():
+        d = list(difflib.unified_diff(
+            state_a.read_text(encoding="utf-8-sig").splitlines(),
+            state_b.read_text(encoding="utf-8-sig").splitlines(),
+            "snapshot", "current", lineterm="",
+        ))
+        print("== live-state.json ==")
+        print("\n".join(d) if d else "  (unchanged)")
 
 
 def cmd_snapshot(args):
@@ -2081,6 +2165,9 @@ def cmd_snapshot(args):
     st = cc_home / "settings.json"
     if st.exists():
         shutil.copy2(st, snap / "settings.json")
+    state = device_state_path()
+    if state.exists():
+        shutil.copy2(state, snap / "live-state.json")
     print(snap)
 
 
@@ -2430,7 +2517,10 @@ def build_parser():
     d.add_argument("--compare-backup", metavar="DB", help="diff current DB against a backup DB")
     d.set_defaults(func=cmd_doctor)
 
-    sn = sub.add_parser("snapshot", help="save point-in-time snapshot (DB + config.toml + settings)")
+    sn = sub.add_parser(
+        "snapshot",
+        help="save point-in-time snapshot (DB + config.toml + settings + live-state)",
+    )
     sn.set_defaults(func=cmd_snapshot)
 
     df = sub.add_parser("diff", help="show changes since a snapshot")

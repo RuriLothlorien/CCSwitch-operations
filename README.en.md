@@ -35,13 +35,13 @@ This skill turns safe maintenance into one repeatable workflow:
 
 ## Compatibility
 
-- Designed and tested with **CC Switch 4.0.8** (database schema v20); 3.20.4 (v19), 3.20.1–3.20.3 (v18) and 3.20.0 (v17) remain readable, but **4.0 migrates v19 → v20 on first start** (`mcp_servers` gains `enabled_pi`) and older CCS versions then refuse to open the database — keep the automatic backup.
-- What 4.0 changes: **the common-config snippet feature is gone** (shared settings now live in the client config file and survive provider switches; a model or effort picked inside the client reverts to the provider's value on switch); a third mode, **stack/aggregation** (Claude Code + Codex only, per-model dispatch, no failover; state in the device-local `~/.cc-switch/live-state.json`, Claude models in `providers.meta.stackModels`); config writing replaces only key fields (the #6719 fix); MCP syncs to Pi (`~/.pi/agent/mcp.json`, `enabled_pi`); Codex 0.158+'s MCP `type` rejection is fixed (CCS 4.0 strips it on write); optional Codex session compression writes `[features] local_thread_store_compression`; GitHub Copilot accounts work on Codex (router on).
+- Designed and tested with **CC Switch 4.0.15** (database schema v20); 4.0.9–4.0.15 did not change the schema. 3.20.4 (v19), 3.20.1–3.20.3 (v18) and 3.20.0 (v17) remain readable, but **4.0 migrates v19 → v20 on first start** (`mcp_servers` gains `enabled_pi`) and older CCS versions then refuse to open the database — keep the automatic backup.
+- What 4.0 changes: **the common-config snippet feature is gone** (shared settings now live in the client config file and survive provider switches; a model or effort picked inside the client reverts to the provider's value on switch); a third mode, **stack/aggregation** (Claude Code and Codex, plus Claude Desktop since 4.0.13; per-model dispatch, no failover; state in the device-local `~/.cc-switch/live-state.json`, Claude Code models in `providers.meta.stackModels`); config writing replaces only key fields (the #6719 fix); MCP syncs to Pi (`~/.pi/agent/mcp.json`, `enabled_pi`); Codex 0.158+'s MCP `type` rejection is fixed (CCS 4.0 strips it on write); optional Codex session compression writes `[features] local_thread_store_compression`; GitHub Copilot accounts work on Codex (router on).
 - **`common-config` only works on CCS ≤ 3.20.4 (schema ≤ v19)**; on v20 every `common-config` subcommand is refused with guidance: shared keys belong in the client live config, provider-specific fields in the card (`provider-block` / `provider-set-key` / `provider-env`).
 - mcode commands need 3.20.4+ (`prompt-set --app-type mcode`, `--enable-mcode`, `set-flags --mcode 1`); Pi MCP (`mcp-upsert --enable-pi`, `set-flags --pi`) needs 4.0+. Provider editing stays in the CC Switch UI — the provider-* commands refuse mcode's YAML structure.
 - Legacy 3.20.x behavior (missing-`model_provider` takeover routing, universal-sync child settings, proxy retry/timeout cross-writes, Kimi/DeepSeek presets) and the full 4.0 change list are in `references/migration.md`.
 - Proxy-managed OAuth cards (xAI OAuth / GitHub Copilot) are forced to `requires_openai_auth = false` (the local proxy injects the token); `check --strict` flags the wrong value, and `repair --mode codex-0149` fixes it early.
-- Run `python scripts/ccs_db.py doctor` to check your installed version, schema and each app's current mode (direct/route/stack) before operating.
+- Run `python scripts/ccs_db.py doctor` to check the schema, each app's current mode (direct/route/stack), malformed state files, and the Codex auth-preservation guard before operating.
 - Other versions may behave differently; see `references/migration.md` for official version behavior changes.
 
 ## Features
@@ -50,7 +50,7 @@ This skill turns safe maintenance into one repeatable workflow:
 - UTF-8-safe database helper (`scripts/ccs_db.py`) for Chinese content.
 - Covers all 10 managed apps: codex, claude, claude-desktop, gemini, grokbuild, opencode, openclaw, hermes, pi, mcode.
 - Cross-platform: `CC_SWITCH_HOME` / `~/.cc-switch` discovery, PowerShell and bash examples.
-- `doctor` subcommand prints resolved paths, schema version, per-app provider availability, and each app's current mode (direct/route/stack, from `live-state.json`).
+- `doctor` subcommand prints resolved paths, schema version, per-app provider availability, and each app's current mode (direct/route/stack, from `live-state.json`); it also warns about malformed `settings.json` / `live-state.json` and a disabled Codex official-auth preservation guard.
 
 ## How it works
 
@@ -163,10 +163,10 @@ Set `CC_SWITCH_HOME` to override the CC Switch home directory (default: `~/.cc-s
 To package the skill into a distributable zip (for example to install it in CC Switch or share it manually):
 
 ```bash
-python scripts/build-zip.py --version 1.0.0
+python scripts/build-zip.py --version 1.3.1
 ```
 
-Output: `dist/CCSwitch-operations-v1.0.0.zip`.
+Output: `dist/CCSwitch-operations-v1.3.1.zip`.
 
 ## License
 

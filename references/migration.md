@@ -2,16 +2,20 @@
 
 只记录 CC Switch 官方版本带来的行为变化；不包含任何用户/环境相关说明。
 
-## 4.0（正式版 4.0.4，2026-10-06；含 4.0.5–4.0.8 修复）
+## 4.0（正式版 4.0.4，2026-10-06；含 4.0.5–4.0.15 修复）
 
 - **数据库迁移 v19 → v20**：`mcp_servers` 新增 `enabled_pi`（MCP 同步到 Pi 1.0）。首次启动自动迁移并尝试备份到 `<cc-home>/backups/`；运行过 4.0 后 3.x 会以“数据库版本过新”拒绝打开。
 - **配置写入重写（#6719 修复）**：供应商编辑页保存只替换地址、Key、模型等关键字段，其余内容（顶层键、`[plugins]`/`[projects]`/`[mcp_servers.*]`、注释、`# >>> … <<<` 标记）逐字节保留；零改动保存与保存前逐字节一致；不再剥离/合并通用配置；url-only 远程 MCP 不再写成空 `command`，Codex 的 `[mcp_servers.*]` 不再写 `type`。**已损坏的存量条目不会自动修**：在 MCP 面板把服务器关掉再打开重写，或用本技能 `check --strict` / `repair` / `mcp-upsert`。
 - **通用配置片段功能移除**：共享设置直接留在客户端配置文件里并跨切换保留；DB 里旧的 `common_config_*` 与 `providers.meta.common_config_enabled` 成为惰性遗留（升级时会把片段合并进各供应商配置，记录在 `common_config_legacy_migrated_v1`）。临时在客户端选的模型/推理强度，切走再切回会恢复为供应商设定值。
-- **三种模式：直连 / 路由 / 聚合（Stack）**：聚合把多家供应商的模型发布到同一个 `/model` 列表并按所选模型分发，仅 Claude Code 与 Codex，需要本地路由，**无故障转移**；状态在设备本地 `~/.cc-switch/live-state.json`（不跟随 `CC_SWITCH_HOME`、不同步），Claude 各家的发布模型在 `providers.meta.stackModels`；Claude Code 需 ≥2.1.243；Codex 聚合列表变化需重启（Claude Code 立即生效）；同会话换模型会重建提示词缓存，首轮更贵。跨供应商子 agent 默认读不到任务，需在 Codex 应用配置打开「聚合模式下子 agent 用经典工具」（`settings.json: codexStackClassicSubagents`）。
+- **三种模式：直连 / 路由 / 聚合（Stack）**：聚合把多家供应商的模型发布到同一个客户端模型列表并按所选模型分发；4.0.13 起支持 Claude Code、Codex 与 Claude Desktop，需要本地路由，**无故障转移**；状态在设备本地 `~/.cc-switch/live-state.json`（不跟随 `CC_SWITCH_HOME`、不同步），Claude Code 各家的发布模型在 `providers.meta.stackModels`。Claude Code 需 ≥2.1.243；Codex 聚合列表变化需重启（Claude Code 立即生效）；同会话换模型会重建提示词缓存，首轮更贵。Claude Desktop 只在启动时读配置，换模式、路由目标或成员后必须重启。跨供应商子 agent 在 4.0.13+ 使用 `settings.json: codexStackClassicTools`（默认 true）。
 - **MCP**：可同步到 8 个应用（新增 Pi 1.0，`~/.pi/agent/mcp.json`）；只写连接字段，关同步=在目标里停用而不删条目；SSE 传输、名称含特殊字符的服务器会提示不支持。Codex 0.158+ 不接受 `[mcp_servers.*]` 里的 `type`（4.0 写入时剥离；卡片/面板里的 `type` 在 4.0 下是惰性遗留）。
 - **Codex**：4.0.5 起可用 GitHub Copilot 账号（需开路由，按模型自动选择 Responses/Chat，也可在「上游格式」手选）；4.0.7 起可开关会话压缩（写 `config.toml` 的 `[features] local_thread_store_compression = true`，7 天以上会话压成 `.jsonl.zst`，第三方直接读 raw `.jsonl` 的工具可能读不到）；切换账号或模式会提示重启 Codex 后台服务。
-- **其他**：Claude Code 新增「关闭 auto mode 服务端检查」快捷开关（新建第三方卡默认勾选）；Skills 支持一键全部更新；提示词 8 个应用同页管理；备份总览；预设更新只影响新建卡；「获取模型列表」会带上你配置的请求头（4.0.8）；移除的设置：供应商成本倍率、连通性检查高级设置、Claude 的 Teammates 与最大强度（已写入配置的变量不会被删除）。
-- **升级须知**：升级前建议手动再备份一次（自动备份失败只记日志）；Codex 模型目录/会话分组的修复要等下一次写入（升级后切换一次供应商）；已有 MCP 配置重新同步一次以清掉旧 `type`；时间 MCP 预设改用 `uvx mcp-server-time`（存量需手改命令）；MiniMax Code 可在「应用」页安装与升级。
+- **其他**：Claude Code 新增「关闭 auto mode 服务端检查」快捷开关（新建第三方卡默认勾选）；Skills 支持一键全部更新；提示词 8 个应用同页管理；备份总览；预设更新只影响新建卡；移除的设置：供应商成本倍率、连通性检查高级设置、Claude 的 Teammates 与最大强度（已写入配置的变量不会被删除）。
+- **4.0.9–4.0.12**：本地路由新增 WSL2 可用的「连接地址」；深链支持 `apiFormat`、Pi 供应商和受校验的 `iconUrl`，可执行/可展开值会被拒绝；应用页可安装、升级、卸载并处理多个安装；新增本地 Ollama / LM Studio / llama.cpp / vLLM 供应商，发往回环地址的请求绕过代理；后台会话扫描降为每 10 分钟、打开用量页会立即扫描。schema 始终为 v20。
+- **4.0.13**：Claude Desktop 获得直连/路由/聚合模式和对应模式面板；Codex 新增自动审批模型、provider 卡内 `[agents] default_subagent_model` / `default_subagent_reasoning_effort`，聚合页可单独选择子代理模型；保存 Codex 配置时能识别双引号、单引号及带空格的 `[model_providers.*]` 表头；GPT 系列自动补全窗口封顶 272K，1M 模型预设默认声明。schema 仍为 v20。
+- **4.0.14**：用量面板的币种、侧栏指标、请求日志列可配置；Skills 仓库压缩包上限提升到 512 MiB；Claude Desktop 的 1M 模型只显示一行；schema 仍为 v20。
+- **4.0.15**：Windows 上 `settings.json` 改为原子替换，并可从 BOM、尾部垃圾或截断内容中恢复；损坏原文件保留为 `settings.json.broken-<time>.bak`。此前已被重置的设置不会找回。修复路由会话识别、Codex 坏工具调用历史、DeepSeek 工具历史、WebDAV/S3 慢速传输和 WSL Hermes 会话读取；schema 仍为 v20。
+- **升级须知**：升级前建议手动再备份一次（自动备份失败只记日志）；Codex 模型目录/会话分组的修复要等下一次写入（升级后切换一次供应商）；已有 MCP 配置重新同步一次以清掉旧 `type`；时间 MCP 预设改用 `uvx mcp-server-time`（存量需手改命令）；MiniMax Code 可在「应用」页安装与升级。使用带引号的 provider 表头时，确认本技能版本至少为 v1.3.1。
 
 ## 3.20.4（2026-09-22）
 

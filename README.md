@@ -35,12 +35,12 @@ CC Switch 的配置分散在数据库、`settings.json` 和多个应用的 live 
 
 ## 版本兼容
 
-- 本技能基于 **CC Switch 4.0.8**（数据库 schema v20）设计与测试；3.20.4（v19）、3.20.1–3.20.3（v18）与 3.20.0（v17）仍可读取，但 **4.0 首次启动会把 v19 迁移到 v20**（`mcp_servers` 加 `enabled_pi`），迁移后旧版 CCS 会以“数据库版本过新”拒绝打开——升级前请保留自动备份。
-- CCS 4.0 行为变化：**通用配置片段功能已移除**（共享设置直接留在客户端配置文件里并跨切换保留；临时在客户端选的模型/推理强度，切走再切回会恢复为供应商设定值）；新增**聚合（Stack）模式**（仅 Claude Code / Codex，按所选模型分发、不提供故障转移，状态在设备本地 `~/.cc-switch/live-state.json`，Claude 的发布模型在 `providers.meta.stackModels`）；配置写入改为“只替换关键字段”；MCP 支持 Pi（`~/.pi/agent/mcp.json`，v20 的 `enabled_pi`）；Codex 0.158+ 的 MCP `type` 字段问题已修（CCS 4.0 写入时剥离）；可选压缩 Codex 历史会话（写 `[features] local_thread_store_compression`）。
+- 本技能基于 **CC Switch 4.0.15**（数据库 schema v20）设计与测试；4.0.9–4.0.15 均未再改变 schema。3.20.4（v19）、3.20.1–3.20.3（v18）与 3.20.0（v17）仍可读取，但 **4.0 首次启动会把 v19 迁移到 v20**（`mcp_servers` 加 `enabled_pi`），迁移后旧版 CCS 会以“数据库版本过新”拒绝打开——升级前请保留自动备份。
+- CCS 4.0 行为变化：**通用配置片段功能已移除**（共享设置直接留在客户端配置文件里并跨切换保留；临时在客户端选的模型/推理强度，切走再切回会恢复为供应商设定值）；新增**聚合（Stack）模式**（Claude Code、Codex，以及 4.0.13 起的 Claude Desktop；按所选模型分发、不提供故障转移，状态在设备本地 `~/.cc-switch/live-state.json`，Claude Code 的发布模型在 `providers.meta.stackModels`）；配置写入改为“只替换关键字段”；MCP 支持 Pi（`~/.pi/agent/mcp.json`，v20 的 `enabled_pi`）；Codex 0.158+ 的 MCP `type` 字段问题已修（CCS 4.0 写入时剥离）；可选压缩 Codex 历史会话（写 `[features] local_thread_store_compression`）。
 - **`common-config` 命令只适用于 CCS ≤ 3.20.4（schema ≤ v19）**；在 v20 上所有 `common-config` 子命令都会被明确拒绝并提示新做法：共享键写客户端 live 配置，供应商专属字段写卡片（`provider-block` / `provider-set-key` / `provider-env`）。
 - mcode 相关命令需要 3.20.4+；Pi MCP（`mcp-upsert --enable-pi`、`set-flags --pi`）需要 4.0+；供应商编辑请走 CCS 界面（本技能的 provider-* 命令不支持 mcode 的 YAML 结构，会明确拒绝）。
 - 3.20.x 遗留行为（Codex `model_provider` 缺省卡的接管路由、统一同步的子卡设置、代理重试/超时串写、Kimi/DeepSeek 预设等）与 4.0 的完整变化见 `references/migration.md`。
-- 操作前可运行 `python scripts/ccs_db.py doctor` 查看本机版本、schema 与各应用当前模式（直连/路由/聚合）。
+- 操作前可运行 `python scripts/ccs_db.py doctor` 查看 schema、各应用当前模式（直连/路由/聚合）与关键安全告警。
 - 其他版本可能略有差异，详见 `references/migration.md` 的官方版本行为变化。
 
 ## 功能特性
@@ -49,7 +49,7 @@ CC Switch 的配置分散在数据库、`settings.json` 和多个应用的 live 
 - 面向中文内容安全的数据库辅助脚本（`scripts/ccs_db.py`），支持 UTF-8 文件与内联中文参数。
 - 覆盖全部 10 个受管应用：codex、claude、claude-desktop、gemini、grokbuild、opencode、openclaw、hermes、pi、mcode。
 - 跨平台：自动发现 `CC_SWITCH_HOME` / `~/.cc-switch`，文档同时给出 PowerShell 与 bash 示例。
-- `doctor` 子命令输出解析到的路径、数据库 schema 版本、各应用供应商状态与当前模式（直连/路由/聚合，读 `live-state.json`）。
+- `doctor` 子命令输出解析到的路径、数据库 schema 版本、各应用供应商状态与当前模式（直连/路由/聚合，读 `live-state.json`）；它还会提示 `settings.json` / `live-state.json` 损坏，以及 Codex 官方登录保留开关是否关闭。
 
 ## 工作原理
 
@@ -161,10 +161,10 @@ python scripts/ccs_db.py set-flags --table skills --name my-skill --mcode 1
 如需手动打包为可分发的 zip（例如导入 CC Switch 或手动分享）：
 
 ```bash
-python scripts/build-zip.py --version 1.0.0
+python scripts/build-zip.py --version 1.3.1
 ```
 
-输出：`dist/CCSwitch-operations-v1.0.0.zip`。
+输出：`dist/CCSwitch-operations-v1.3.1.zip`。
 
 ## 文档
 
