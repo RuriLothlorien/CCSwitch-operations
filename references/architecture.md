@@ -1,6 +1,6 @@
 # CC Switch 架构速查
 
-## 数据库 `<cc-home>/cc-switch.db`（CCS 4.0.x = schema v20；CCS 3.20.4 = schema v19；CCS 3.20.1–3.20.3 = schema v18；CCS 3.20.0 = schema v17）
+## 数据库 `<cc-home>/cc-switch.db`（CCS 4.0.19 = schema v22；4.0.18 = v21；4.0.16–4.0.17 = v20；CCS 3.20.4 = v19；3.20.1–3.20.3 = v18；3.20.0 = v17）
 
 `cc-home` 解析顺序：`CC_SWITCH_HOME` 环境变量 → `~/.cc-switch`。
 
@@ -8,10 +8,10 @@
 
 | 表 | 作用 | 关键列 |
 | --- | --- | --- |
-| providers | 各应用下的供应商 | app_type(10 个应用), settings_config(JSON：`config` TOML 文本 / `env` / `modelCatalog`；mcode 为 `name/kind/enabled/api/options/models`), provider_type, is_current, in_failover_queue, cost_multiplier, limit_daily_usd, limit_monthly_usd, meta |
-| prompts | 全局提示词 | app_type(codex/claude/claude-desktop/gemini/grokbuild/opencode/openclaw/hermes/pi), name(`全局`), content, enabled |
-| skills | skill 管理 | id(`local:<name>`), name, directory, repo_owner/repo_name/repo_branch/readme_url, enabled_codex/claude/gemini/opencode/hermes/grokbuild/mcode（v19 新增 `enabled_mcode`）, installed_at, content_hash |
-| mcp_servers | MCP 面板 | id(slug), name, server_config(JSON), description, tags, enabled_codex/claude/gemini/opencode/hermes/grokbuild/mcode/pi（v19 新增 `enabled_mcode`，v20 新增 `enabled_pi`）。只放用户自建/CCS 管理的服务器；官方/内置 MCP 故意不在此表 |
+| providers | 各应用下的供应商 | app_type(12 个应用), settings_config(JSON：`config` TOML 文本 / `env` / `modelCatalog`；mcode 为 `name/kind/enabled/api/options/models`；kimi 为 `provider/models`；agy 为终端启动配置), provider_type, is_current, in_failover_queue, cost_multiplier, limit_daily_usd, limit_monthly_usd, meta |
+| prompts | 全局提示词 | app_type(codex/claude/claude-desktop/gemini/grokbuild/opencode/openclaw/hermes/pi/mcode/kimi/agy), name(`全局`), content, enabled |
+| skills | skill 管理 | id(`local:<name>`), name, directory, repo_owner/repo_name/repo_branch/readme_url, enabled_codex/claude/gemini/opencode/hermes/grokbuild/mcode/agy/kimi, installed_at, content_hash（v19 新增 `enabled_mcode`，v21 新增 `enabled_agy`，v22 新增 `enabled_kimi`） |
+| mcp_servers | MCP 面板 | id(slug), name, server_config(JSON), description, tags, enabled_codex/claude/gemini/opencode/hermes/grokbuild/mcode/pi/agy/kimi（v19 `enabled_mcode`、v20 `enabled_pi`、v21 `enabled_agy`、v22 `enabled_kimi`）。只放用户自建/CCS 管理的服务器；官方/内置 MCP 故意不在此表 |
 | settings | 通用配置 | key(common_config_codex/common_config_claude/claude_desktop_gateway_token/official_providers_seeded/...), value |
 
 ### CCS 自管表（不要手改）
@@ -28,6 +28,8 @@
 
 - **Codex config.toml** ← CCS 从当前 codex provider 的 `settings_config.config` 文本生成。直接改 config.toml 后，必须同步改 provider 的 config 文本，否则 CCS 下次切换供应商会回写覆盖。
 - **Claude Code settings.json** ← claude provider 的 `settings_config.env`；共享设置直接保存在 live `settings.json`，4.0 已不再从 `common_config_claude` 合并。
+- **Kimi Code**：数据目录是 `KIMI_CODE_HOME` 或 `~/.kimi-code`；供应商和模型都在 `config.toml`，DB 卡片保存结构化 `{provider, models}`。MCP → `mcp.json`，Skills → `skills/`，Prompt → `AGENTS.md`。供应商为累加模式，不走本地代理或聚合。
+- **Antigravity CLI**：共享定制目录是 `~/.gemini/config`（MCP `mcp_config.json`、Skills `skills/`、Prompt `AGENTS.md`）。供应商卡不改用户直接运行的 agy；第三方 Key/URL 只经 CCS 启动的终端环境传入，该终端使用 `~/.cc-switch/agy/<provider>/` 私有 gemini 目录并软链接共享 config。
 - **Claude Desktop 3P**：`%LOCALAPPDATA%\Claude-3p\claude_desktop_config.json`（MCP/偏好）+ `configLibrary\...157210.json`（网关/模型/toolSearchEnabled）。CCS 4.0.13 起自动维护直连/路由/聚合所需的配置，但 Claude Desktop 仍不在 CCS 的 MCP 同步矩阵中；3P Skills 继续按 manifest 手动同步。
 - **Claude Desktop 1P**：`%APPDATA%\Claude\claude_desktop_config.json`。
 - **模型目录**：`~/.codex/cc-switch-model-catalog.json`（CCS 从供应商模板生成；DeepSeek 模板需保持 `supports_search_tool:false` 以规避工具不可见问题）。3.20 的目录支持逐模型思考档位；`model_catalog_json` 指针只在缺失或已是 CCS 自有文件名时才被认领。
@@ -44,7 +46,7 @@
 - **Codex 会话压缩（4.0.7）**：开关直接改 `config.toml`，写入 `[features] local_thread_store_compression = true`；Codex 启动时把 7 天以上没动过的会话压成同名 `.jsonl.zst`（CCS 不另存该设置；直接读 `.jsonl` 的第三方工具可能读不到压缩会话）。
 - **恢复 `.db` 备份（3.20 行为变化）**：恢复后会按新库**重写所有受管应用的 live 配置（Pi 除外）**，而旧版只改数据库——恢复后仍需复核 MCP 三处一致。
 
-## 受管应用（CCS 3.20.4 共 10 个）与 Skills 目录
+## 受管应用（CCS 4.0.19 共 12 个）与 Skills 目录
 
 见 references/apps.md 的完整矩阵。
 

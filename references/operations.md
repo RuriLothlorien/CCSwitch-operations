@@ -79,7 +79,7 @@ python "$S" mcp-upsert --name dashscope-websearch \
 python $S prompt-set --app-type codex --content-file prompts_codex.txt
 ```
 
-`--app-type` 支持 10 个应用：`codex` / `claude` / `claude-desktop` / `gemini` / `grokbuild` / `opencode` / `openclaw` / `hermes` / `pi` / `mcode`（`mcode` = MiniMax Code，提示词单条 ≤32 KiB；供应商编辑请走 CCS 界面）。
+`--app-type` 支持 12 个应用：`codex` / `claude` / `claude-desktop` / `gemini` / `grokbuild` / `opencode` / `openclaw` / `hermes` / `pi` / `mcode` / `kimi` / `agy`（`mcode` = MiniMax Code，提示词单条 ≤32 KiB；Kimi/Agy/mcode 的供应商编辑请走 CCS 界面）。
 
 ### skill 注册
 
@@ -97,7 +97,7 @@ python $S provider-block --section "[mcp_servers.foo]" --block-file block.toml `
 python $S provider-block --section "[mcp_servers.foo]" --block-file block.toml --replace
 ```
 
-供应商 ID 解析顺序：`--provider-id` → `settings.json` 的 `currentProvider*` → `providers.is_current=1`；解析失败会明确报错。`provider-block` 只适用于有 `config` TOML 文本的供应商（如 codex/gemini）；claude/claude-desktop 用 `provider-env`。
+供应商 ID 解析顺序：`--provider-id` → `settings.json` 的 `currentProvider*` → `providers.is_current=1`；解析失败会明确报错。`provider-block` 只适用于有 `config` TOML 文本的供应商（如 codex/gemini）；claude/claude-desktop 用 `provider-env`。Kimi 的结构化 `{provider, models}`、Agy 的启动终端卡和 mcode 的 YAML 供应商会明确拒绝，必须走 CCS 界面。
 
 ### 供应商环境变量
 
@@ -123,7 +123,7 @@ python $S set-flags --table mcp_servers --name my-server --claude 1 --codex 1
 python $S set-flags --table skills --name my-skill --claude 0
 ```
 
-支持的开关：`--codex` `--claude` `--gemini` `--opencode` `--hermes` `--grokbuild` `--mcode`（3.20.4+）`--pi`（仅 `mcp_servers`，CCS 4.0+）。`mcp-upsert` / `skill-upsert` 的 `--enable-*` 是全量标志集，单个开关请用 `set-flags`。
+支持的开关：`--codex` `--claude` `--gemini` `--opencode` `--hermes` `--grokbuild` `--mcode`（3.20.4+）`--pi`（仅 `mcp_servers`，CCS 4.0+）`--agy`（CCS 4.0.18+）`--kimi`（CCS 4.0.19+）。`mcp-upsert` / `skill-upsert` 的 `--enable-*` 是全量标志集，单个开关请用 `set-flags`。
 
 ## 安装技能到各应用（复制/链接）
 
@@ -249,16 +249,38 @@ python scripts/ccs_db.py set-flags --table skills --name my-skill --mcode 1
 
 边界：mcode 供应商是 `~/.minimax/config.yaml` 的 YAML `custom_provider`，`provider-block` / `provider-env` / `provider-set-key` 会明确拒绝（请走 CCS 界面）；数据目录按 `MINIMAX_DATA_DIR` → `MAVIS_DATA_DIR` → `~/.minimax` 解析；MCP/Skills 默认对 mcode 关闭，开启后 CCS 才写 `~/.minimax`。注意 `mcp-upsert` / `skill-upsert` 的 `--enable-*` 是**全量标志集**（未传的会被置 0，关掉已启用项时工具会给出警告），单个开关请用 `set-flags`。
 
-### CC Switch 4.0.15 升级后复核
+### Kimi Code（kimi，4.0.19+）
 
 ```bash
-python scripts/ccs_db.py doctor                                    # schema v20 + 模式 + JSON/auth 安全告警
+python scripts/ccs_db.py prompt-set --app-type kimi --content-file kimi-prompt.txt
+python scripts/ccs_db.py mcp-upsert --name my-server --config-file server_config.json --enable-kimi
+python scripts/ccs_db.py skill-upsert --name my-skill --enable-kimi
+python scripts/ccs_db.py set-flags --table mcp_servers --name my-server --kimi 1
+```
+
+边界：数据目录按 `KIMI_CODE_HOME` → `~/.kimi-code`；MCP 写 `mcp.json`（stdio/HTTP/SSE），Skills 写 `skills/`，Prompt 写 `AGENTS.md`。供应商在 DB 中是结构化 `{provider, models}`，`provider-block` / `provider-env` / `provider-set-key` / provider repair 会明确拒绝；CLI 和桌面版共享这份配置，Kimi 不走本地代理或聚合。
+
+### Antigravity CLI（agy，4.0.18+）
+
+```bash
+python scripts/ccs_db.py prompt-set --app-type agy --content-file agy-prompt.txt
+python scripts/ccs_db.py mcp-upsert --name my-server --config-file server_config.json --enable-agy
+python scripts/ccs_db.py skill-upsert --name my-skill --enable-agy
+python scripts/ccs_db.py set-flags --table mcp_servers --name my-server --agy 1
+```
+
+边界：MCP/Skills/Prompt 都写 `~/.gemini/config`（MCP 为 `mcp_config.json`、Prompt 为 `AGENTS.md`），该目录可能和 Antigravity IDE 共用。MCP 支持 stdio 和流式 HTTP，**不支持 SSE**。供应商卡只对 CCS 卡片“使用此供应商打开终端”启动的 agy 生效；直接运行 agy 仍使用官方 Google 登录，因此 provider-* 命令会拒绝 Agy。
+
+### CC Switch 4.0.19 升级后复核
+
+```bash
+python scripts/ccs_db.py doctor                                    # schema v22 + 12 应用 + 标志列 + 模式/安全告警
 python scripts/ccs_db.py check --strict
 python scripts/ccs_db.py doctor --audit
 python scripts/ccs_db.py repair --target config.toml --mode mcp-type    # dry-run：清 live 里的 MCP `type`
 ```
 
-要点：4.0.9–4.0.15 的 schema 都是 v20；v19→v20 迁移后 3.x 打不开数据库（确认升级前备份还在）；Codex 模型目录/会话分组的修复要切换一次供应商才生效；已有 MCP 配置重新同步一次清掉旧 `type`；时间 MCP 预设改用 `uvx mcp-server-time`；`common-config` 已移除（见下方“通用配置维护”）。Claude Desktop 从 4.0.13 起支持直连/路由/聚合，切换后重启 Desktop；跨供应商 Codex 子代理开关是 `codexStackClassicTools`。`doctor` 警告 `preserveCodexOfficialAuthOnSwitch` 未开启时，若使用依赖 `auth.json` 的 Codex 构建，应在 CCS 设置中打开。
+要点：4.0.16–4.0.17 为 schema v20，4.0.18 升到 v21（`enabled_agy`），4.0.19 升到 v22（`enabled_kimi`）；运行过 4.0.19 后旧版 CCS 会拒绝打开。Codex 模型目录/会话分组的修复要切换一次供应商才生效；已有 MCP 配置重新同步一次清掉旧 `type`；时间 MCP 预设改用 `uvx mcp-server-time`；`common-config` 已移除（见下方“通用配置维护”）。Claude Desktop 从 4.0.13 起支持直连/路由/聚合，切换后重启 Desktop；跨供应商 Codex 子代理开关是 `codexStackClassicTools`。`doctor` 警告 `preserveCodexOfficialAuthOnSwitch` 未开启时，若使用依赖 `auth.json` 的 Codex 构建，应在 CCS 设置中打开；4.0.16 起正常路由的登录保留已改善，但真正的第三方直切仍受该设置影响。
 
 ### MCP `type` 与 Pi 同步（4.0）
 
@@ -270,6 +292,10 @@ python scripts/ccs_db.py repair --target provider --provider-id <id> --mode mcp-
 # Pi MCP（CCS 4.0+；只写连接字段，关同步=在 Pi 里停用不删条目）
 python scripts/ccs_db.py mcp-upsert --name <name> --config-file server_config.json --enable-pi
 python scripts/ccs_db.py set-flags --table mcp_servers --name <name> --pi 1
+
+# Kimi Code（4.0.19+）与 Antigravity（4.0.18+）
+python scripts/ccs_db.py mcp-upsert --name <name> --config-file server_config.json --enable-kimi --enable-agy
+python scripts/ccs_db.py set-flags --table mcp_servers --name <name> --kimi 1 --agy 1
 ```
 
 ### CC Switch 3.20.4 升级后复核（历史）

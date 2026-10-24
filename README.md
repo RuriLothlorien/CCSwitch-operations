@@ -7,7 +7,7 @@
 
 > [English](README.en.md) | 简体中文
 
-可移植、可发布的 **CC Switch（CCS）** 操作技能：安全地维护全局提示词、Skills、MCP 服务器、供应商与 Codex 模型目录，覆盖 CCS 管理的十个应用。
+可移植、可发布的 **CC Switch（CCS）** 操作技能：安全地维护全局提示词、Skills、MCP 服务器、供应商与 Codex 模型目录，覆盖 CCS 管理的十二个应用。
 
 本包自包含：**没有安装脚本，也不依赖任何外部辅助脚本**。安装方式只有两种——把技能目录解压/复制到 agent 的 skills 目录，或在 CC Switch 中从 zip 导入。
 
@@ -26,7 +26,7 @@ CC Switch 的配置分散在数据库、`settings.json` 和多个应用的 live 
 这个技能把“安全维护”沉淀成一套方法论和工具：
 
 - **不用碰数据库**：`mcp-upsert`、`prompt-set`、`skill-upsert`、`provider-block`、`provider-env`、`set-flags` 覆盖日常操作，全部由工具代劳
-- **按需维护，十个 agent 都覆盖**：Codex、Claude Code、Claude Desktop、Gemini、Grok Build、OpenCode、OpenClaw、Hermes、Pi、MiniMax Code 的配置边界一次讲清；只改某一个 agent 或批量同步都可以，不用再逐个手工确认
+- **按需维护，十二个 agent 都覆盖**：Codex、Claude Code、Claude Desktop、Gemini、Grok Build、OpenCode、OpenClaw、Hermes、Pi、MiniMax Code、Kimi Code、Antigravity CLI 的配置边界一次讲清；只改某一个 agent 或批量同步都可以，不用再逐个手工确认
 - **先备份、后修改、再校验**：备份 → 停止 CCS → 修改 → 校验 → 重启 → 复核，照着流程走就不会漏
 - **自动发现路径、跨平台**：支持 `CC_SWITCH_HOME` / `~/.cc-switch`，Windows / macOS / Linux 通用
 - **中文内容安全**：UTF-8 安全读写，不再担心乱码
@@ -35,10 +35,11 @@ CC Switch 的配置分散在数据库、`settings.json` 和多个应用的 live 
 
 ## 版本兼容
 
-- 本技能基于 **CC Switch 4.0.15**（数据库 schema v20）设计与测试；4.0.9–4.0.15 均未再改变 schema。3.20.4（v19）、3.20.1–3.20.3（v18）与 3.20.0（v17）仍可读取，但 **4.0 首次启动会把 v19 迁移到 v20**（`mcp_servers` 加 `enabled_pi`），迁移后旧版 CCS 会以“数据库版本过新”拒绝打开——升级前请保留自动备份。
+- 本技能基于 **CC Switch 4.0.19**（数据库 schema v22）设计与测试。4.0.18 把 v20 升到 v21，为 MCP/Skills 增加 `enabled_agy`；4.0.19 把 v21 升到 v22，增加 `enabled_kimi`。迁移后旧版 CCS 会以“数据库版本过新”拒绝打开——升级前请保留自动备份。
+- 历史库仍按列兼容读取：v17（3.20.0）、v18（3.20.1–3.20.3）、v19（3.20.4）、v20（4.0.16–4.0.17）、v21（4.0.18）；一旦升级到 v22，旧版 CCS 将无法直接打开数据库。
 - CCS 4.0 行为变化：**通用配置片段功能已移除**（共享设置直接留在客户端配置文件里并跨切换保留；临时在客户端选的模型/推理强度，切走再切回会恢复为供应商设定值）；新增**聚合（Stack）模式**（Claude Code、Codex，以及 4.0.13 起的 Claude Desktop；按所选模型分发、不提供故障转移，状态在设备本地 `~/.cc-switch/live-state.json`，Claude Code 的发布模型在 `providers.meta.stackModels`）；配置写入改为“只替换关键字段”；MCP 支持 Pi（`~/.pi/agent/mcp.json`，v20 的 `enabled_pi`）；Codex 0.158+ 的 MCP `type` 字段问题已修（CCS 4.0 写入时剥离）；可选压缩 Codex 历史会话（写 `[features] local_thread_store_compression`）。
 - **`common-config` 命令只适用于 CCS ≤ 3.20.4（schema ≤ v19）**；在 v20 上所有 `common-config` 子命令都会被明确拒绝并提示新做法：共享键写客户端 live 配置，供应商专属字段写卡片（`provider-block` / `provider-set-key` / `provider-env`）。
-- mcode 相关命令需要 3.20.4+；Pi MCP（`mcp-upsert --enable-pi`、`set-flags --pi`）需要 4.0+；供应商编辑请走 CCS 界面（本技能的 provider-* 命令不支持 mcode 的 YAML 结构，会明确拒绝）。
+- mcode 相关命令需要 3.20.4+；Pi MCP（`--enable-pi`）需要 4.0+；Antigravity（`--enable-agy`）需要 4.0.18+；Kimi Code（`--enable-kimi`）需要 4.0.19+。Kimi 的结构化供应商、Agy 的启动终端供应商和 mcode 的 YAML 供应商都由 CCS 界面管理；本技能的 provider-* 命令会明确拒绝这些格式。
 - 3.20.x 遗留行为（Codex `model_provider` 缺省卡的接管路由、统一同步的子卡设置、代理重试/超时串写、Kimi/DeepSeek 预设等）与 4.0 的完整变化见 `references/migration.md`。
 - 操作前可运行 `python scripts/ccs_db.py doctor` 查看 schema、各应用当前模式（直连/路由/聚合）与关键安全告警。
 - 其他版本可能略有差异，详见 `references/migration.md` 的官方版本行为变化。
@@ -47,9 +48,9 @@ CC Switch 的配置分散在数据库、`settings.json` 和多个应用的 live 
 
 - 安全写入流程：备份 → 停止 CCS → 修改 → 校验 → 重启 → 复核。
 - 面向中文内容安全的数据库辅助脚本（`scripts/ccs_db.py`），支持 UTF-8 文件与内联中文参数。
-- 覆盖全部 10 个受管应用：codex、claude、claude-desktop、gemini、grokbuild、opencode、openclaw、hermes、pi、mcode。
+- 覆盖全部 12 个受管应用：codex、claude、claude-desktop、gemini、grokbuild、opencode、openclaw、hermes、pi、mcode、kimi、agy。
 - 跨平台：自动发现 `CC_SWITCH_HOME` / `~/.cc-switch`，文档同时给出 PowerShell 与 bash 示例。
-- `doctor` 子命令输出解析到的路径、数据库 schema 版本、各应用供应商状态与当前模式（直连/路由/聚合，读 `live-state.json`）；它还会提示 `settings.json` / `live-state.json` 损坏，以及 Codex 官方登录保留开关是否关闭。
+- `doctor` 子命令输出解析到的路径、数据库 schema、12 个应用及其供应商状态、MCP/Skills 标志列和当前模式（直连/路由/聚合，读 `live-state.json`）；它还会提示 `settings.json` / `live-state.json` 损坏，以及 Codex 官方登录保留开关是否关闭。
 
 ## 工作原理
 
@@ -86,7 +87,7 @@ CCSwitch-operations/
 ├─ assets/ccswitch-operations-banner.png  # 社交预览图（仅仓库内）
 ├─ references/
 │  ├─ architecture.md          # 架构速查
-│  ├─ apps.md                  # 十大受管应用矩阵
+│  ├─ apps.md                  # 十二大受管应用矩阵
 │  ├─ operations.md            # 操作模板（PowerShell + bash）
 │  ├─ pitfalls.md              # 已踩过的坑
 │  ├─ migration.md             # 官方版本行为变化
@@ -146,6 +147,7 @@ python scripts/ccs_db.py repair --target provider --mode mcp-type         # dry-
 # 示例（完整命令见 references/operations.md）
 python scripts/ccs_db.py mcp-upsert --name my-server --config-file server_config.json --enable-codex --enable-claude
 python scripts/ccs_db.py mcp-upsert --name my-server --config-file server_config.json --enable-pi   # Pi 1.0（CCS 4.0+）
+python scripts/ccs_db.py mcp-upsert --name my-server --config-file server_config.json --enable-agy --enable-kimi  # CCS 4.0.19+
 python scripts/ccs_db.py prompt-set --app-type codex --content-file prompt.txt
 python scripts/ccs_db.py prompt-set --app-type mcode --content-file mcode-prompt.txt  # MiniMax Code（≤32 KiB）
 python scripts/ccs_db.py skill-upsert --name my-skill --description "我的技能" --enable-codex
@@ -161,15 +163,15 @@ python scripts/ccs_db.py set-flags --table skills --name my-skill --mcode 1
 如需手动打包为可分发的 zip（例如导入 CC Switch 或手动分享）：
 
 ```bash
-python scripts/build-zip.py --version 1.3.1
+python scripts/build-zip.py --version 1.4.0
 ```
 
-输出：`dist/CCSwitch-operations-v1.3.1.zip`。
+输出：`dist/CCSwitch-operations-v1.4.0.zip`。
 
 ## 文档
 
 - `references/architecture.md` — 架构速查（表结构、生效链路）
-- `references/apps.md` — 十大受管应用矩阵
+- `references/apps.md` — 十二大受管应用矩阵
 - `references/operations.md` — 操作命令模板（PowerShell + bash）
 - `references/pitfalls.md` — 已踩过的坑
 - `references/migration.md` — 官方版本行为变化

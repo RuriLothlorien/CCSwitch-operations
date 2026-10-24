@@ -1,19 +1,19 @@
-# v1.3.1 增量更新
+# v1.4.0 增量更新
 
-## 对齐 CC Switch 4.0.15
+## 对齐 CC Switch 4.0.19 / schema v22
 
-- **quoted provider 表头修复**：CC Switch 4.0.13+ 接受 `[model_providers."custom"]`、带空格以及单引号表头。技能现在先解码 TOML 表头键再审计/修复，不再把缺失的 `name` 回填成非法的 `name = ""custom""`；`repair --mode codex-0149` 生成的配置会通过 `tomllib` 校验。
-- **`doctor` 模式显示修正**：`live-state.json` 的内部值 `proxy` 现在按 CCS 用户界面映射为 `route`；Claude Desktop 的聚合状态显示为 `stack`。
-- **主动健康告警**：`doctor` 会提示损坏的 `settings.json` / `live-state.json`，并在 `preserveCodexOfficialAuthOnSwitch` 未开启时提醒 Codex 桌面版可能因为缺少 `auth.json` 回到登录页。
-- **快照完整性**：`snapshot` 和 `diff` 现在包含设备本地 `live-state.json`，可一起核对模式与聚合成员状态。
-- **4.0.15 文档对齐**：聚合支持 Claude Code、Codex 和 Claude Desktop（4.0.13+）；Codex 子代理兼容开关更新为 `codexStackClassicTools`；补充 4.0.9–4.0.15 的深链、本地供应商、应用管理、`settings.json` 原子写入等行为变化。
-- **兼容基线**：CC Switch **4.0.15 / schema v20**；4.0.9–4.0.15 无数据库迁移，旧版 3.20.x 数据库仍按原规则读取。
+- **新增 Kimi Code（`kimi`）支持**：可用于 MCP、Skills、Prompt 和对应启用标志；支持 `KIMI_CODE_HOME`、多供应商共存、`~/.kimi-code/mcp.json`、`~/.kimi-code/skills` 与 `~/.kimi-code/AGENTS.md`。
+- **新增 Antigravity CLI（`agy`）支持**：可用于 MCP、Skills、Prompt 和 `enabled_agy`；MCP/Skills/Prompt 同步到共享的 `~/.gemini/config`，MCP 支持 stdio/HTTP，不支持 SSE。
+- **数据库迁移对齐**：4.0.18 从 schema v20 升到 v21（`enabled_agy`），4.0.19 升到 v22（`enabled_kimi`）；迁移后旧版 CCS 会拒绝打开数据库。
+- **供应商安全边界**：Kimi 的结构化 `{provider, models}`、Agy 的启动终端供应商以及 mcode 的 YAML 供应商不会被 provider-* 命令误写；工具会明确拒绝并提示使用 CCS UI/卡片。
+- **`doctor` 增强**：显示 12 个受管应用、每个应用的 provider 数量、MCP/Skills 新标志列是否可用，以及原有模式、JSON 和 Codex auth 安全告警。
+- **文档与示例**：更新中英 README、12 应用矩阵、架构、操作模板、迁移说明和已知坑，覆盖 4.0.16–4.0.19 的相关行为变化。
 
 ## 更新安装方法
 
 ### Codex
 1. 退出 Codex
-2. 用 zip 解压出的 `CCSwitch-operations/` 替换 `~/.codex/skills/CCSwitch-operations/`（直接覆盖旧版）
+2. 用 zip 解压出的 `CCSwitch-operations/` 替换 `~/.codex/skills/CCSwitch-operations/`
 3. 重新打开 Codex 并新开会话
 
 ### Claude Code / 其他 SKILL.md agent
@@ -24,24 +24,24 @@
 
 ### 升级后建议
 ```bash
-python scripts/ccs_db.py snapshot
+python scripts/ccs_db.py doctor
 python scripts/ccs_db.py check --strict
 python scripts/ccs_db.py doctor --audit
 ```
 
 ---
 
-## v1.3.1 Incremental (English)
+## v1.4.0 Incremental (English)
 
-- **Quoted provider headers fixed**: CC Switch 4.0.13+ accepts `[model_providers."custom"]`, spaced keys, and single-quoted headers. The skill now decodes TOML key parts before auditing/repairing, so a missing `name` is never emitted as invalid `name = ""custom""`; `repair --mode codex-0149` output is validated with `tomllib`.
-- **Correct user-facing modes**: `doctor` maps the internal `live-state.json` value `proxy` to `route`, and reports Claude Desktop aggregation as `stack`.
-- **Proactive health warnings**: `doctor` flags malformed `settings.json` / `live-state.json` and warns when `preserveCodexOfficialAuthOnSwitch` is off, which can leave Codex desktop at the login screen after a third-party switch.
-- **Complete snapshots**: `snapshot` and `diff` now include the device-local `live-state.json`, covering mode and aggregation-member state.
-- **Aligned with 4.0.15**: stack/aggregation covers Claude Code, Codex, and Claude Desktop (4.0.13+); the Codex sub-agent compatibility key is now `codexStackClassicTools`; docs cover deep-link/import, local providers, app management, and atomic `settings.json` writes from 4.0.9–4.0.15.
-- **Compatibility baseline**: CC Switch **4.0.15 / schema v20**. Releases 4.0.9–4.0.15 made no database migration; legacy 3.20.x databases remain readable under the documented rules.
+- **Kimi Code (`kimi`) support**: MCP, Skills, Prompts and enable flags; supports `KIMI_CODE_HOME`, additive providers, `~/.kimi-code/mcp.json`, `~/.kimi-code/skills`, and `~/.kimi-code/AGENTS.md`.
+- **Antigravity CLI (`agy`) support**: MCP, Skills, Prompts and `enabled_agy`; shared customizations live under `~/.gemini/config`; MCP supports stdio/HTTP but not SSE.
+- **Schema alignment**: CC Switch 4.0.18 moved schema v20 to v21 (`enabled_agy`), and 4.0.19 moved v21 to v22 (`enabled_kimi`). Older CCS releases cannot open the migrated database.
+- **Provider safety boundaries**: Kimi's structured `{provider, models}`, Agy's terminal-launch cards, and mcode's YAML provider shape are refused by provider-* commands instead of being written in an incompatible format.
+- **`doctor` improvements**: reports all 12 managed apps, provider counts, availability of the new MCP/Skills flags, plus the existing mode/JSON/Codex-auth health warnings.
+- **Documentation**: updated READMEs, the 12-app matrix, architecture, operations, migration history, and pitfalls for the relevant 4.0.16–4.0.19 changes.
 
 ### Update / Install
 
 1. Quit the target agent.
-2. Replace its existing `CCSwitch-operations/` skill folder with the one from this zip (for Codex, `~/.codex/skills/CCSwitch-operations/`).
-3. Restart the agent, then run `check --strict` and `doctor --audit`.
+2. Replace its existing `CCSwitch-operations/` skill folder with the one from this zip.
+3. Restart the agent, then run `doctor`, `check --strict`, and `doctor --audit`.

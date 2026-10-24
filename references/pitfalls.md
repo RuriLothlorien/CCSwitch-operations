@@ -54,6 +54,12 @@
 | Codex 聚合模式下子 agent 读不到任务 | 新版子 agent 工具把任务加密给主 agent 的供应商，跨供应商解不开 | 在聚合设置里打开「聚合模式下子 agent 用经典工具」（`settings.json: codexStackClassicTools`，4.0.13 起默认 true），改完重启 Codex；代价是没有 `followup_task` 等新工具 |
 | Windows 更新 CCS 后，隐藏应用、配置目录覆盖等设置回到默认值 | 4.0.15 之前 `settings.json` 直接覆盖写；新内容更短时旧尾部残留，随后整份解析失败并回落默认值 | 升级 4.0.15+；若首启出现 `settings.json.broken-<time>.bak`，从备份核对并重设；已丢失的旧设置不会自动找回 |
 | Claude Desktop 切换直连/路由/聚合后没有变化 | Desktop 只在启动时读取配置 | 完全退出并重启 Claude Desktop；路由/聚合模式还需保持 CC Switch 运行 |
+| 升级 4.0.18 / 4.0.19 后旧版 CCS 打不开数据库 | 4.0.18 将 schema 升到 v21 并加入 `enabled_agy`；4.0.19 升到 v22 并加入 `enabled_kimi` | 升级前保留自动备份；降级必须恢复迁移前数据库，不能用旧版直接打开 v21/v22 |
+| Kimi Code 的 MCP/Skills 已在面板勾选但原生文件没有 | 技能只改 DB 标志，CCS 负责投影到 `~/.kimi-code`；也可能 `KIMI_CODE_HOME` 指向了另一目录 | 重启 CCS 触发同步；确认启动 CCS 的 `KIMI_CODE_HOME` 与 Kimi 实际使用目录一致 |
+| 直接运行 agy 没有使用 CCS 里的第三方供应商 | Agy 卡片是启动时注入，只对“使用此供应商打开终端”启动的进程生效；直接运行 agy 仍是官方 Google 登录 | 从对应卡片打开终端；不要试图用 provider-* 改全局 agy |
+| Agy 的 MCP 勾选后报 SSE 不支持 | Agy 只支持 stdio 和流式 HTTP | 改用 HTTP 或 `npx -y mcp-remote <url> --transport sse-only` 桥接为 stdio；不要手改共享目录绕过校验 |
+| 修改 Agy 定制后 Antigravity IDE 也受影响 | CLI、桌面版和 IDE 可能共用 `~/.gemini/config` | 操作前明确要影响哪个应用；只改指定用户所需的 MCP/Skills/Prompt，并在重启 IDE/agy 后复核 |
+| Kimi 多供应商中某些卡不能删除 | 默认模型或子代理仍引用该供应商 | 先在 Kimi Code 里把默认模型/子代理换掉，再从 CCS 移除；官方多账号由授权中心管理 |
 | 打开「压缩 Codex 历史会话」后别的工具读不到会话 | 7 天以上会话被压成 `.jsonl.zst`，直接读 raw `.jsonl` 的工具看不到 | 属于预期行为：压缩会话在 CCS 里照常可读，Codex 继续时会自动解压；需要被第三方读取时不要开该开关 |
 | 升级 4.0 后旧触发的问题还在 | 部分修复（Codex 模型目录、会话分组、MCP `type`）要等 CCS 下一次写入才生效 | 升级后切换一次供应商；已有 MCP 配置重新同步一次；时间 MCP 预设改为 `uvx mcp-server-time`（存量需手改） |
 | 4.0 里找不到设置项 | 4.0 移除了供应商成本倍率、连通性检查高级设置、Claude 的 Teammates 与最大强度 | 已写入配置的环境变量不会被自动删除；需要时用官方端点的默认值或在会话里用 `/effort max` |

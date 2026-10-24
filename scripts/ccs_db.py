@@ -84,6 +84,8 @@ APP_TYPES = (
     "hermes",
     "pi",
     "mcode",
+    "kimi",
+    "agy",
 )
 
 # CC Switch 4.0 (schema v20) removed the common-config snippet; the DB may
@@ -99,7 +101,8 @@ COMMON_CONFIG_REMOVED_MSG = (
 )
 
 # app id -> per-app enable column in `mcp_servers` / `skills`. Older schemas
-# lack some of these columns (v18: no `enabled_mcode`, v19: no `enabled_pi`);
+# lack some of these columns (v18: no `enabled_mcode`, v19: no `enabled_pi`,
+# v20: no `enabled_agy`, v21: no `enabled_kimi`);
 # commands detect which columns exist so the helper keeps working against old
 # databases. Pi skills are enabled by existence, so `enabled_pi` only exists on
 # `mcp_servers`.
@@ -112,6 +115,8 @@ FLAG_COLUMNS = (
     ("grokbuild", "enabled_grokbuild"),
     ("mcode", "enabled_mcode"),
     ("pi", "enabled_pi"),
+    ("agy", "enabled_agy"),
+    ("kimi", "enabled_kimi"),
 )
 
 # Only these app types have a common-config snippet and the per-provider
@@ -232,6 +237,7 @@ def settings_provider_ids_from_obj(s: dict) -> dict:
         "claude": s.get("currentProviderClaude"),
         "claude-desktop": s.get("currentProviderClaudeDesktop"),
         "gemini": s.get("currentProviderGemini"),
+        "agy": s.get("currentProviderAgy"),
     }
 
 
@@ -464,21 +470,40 @@ def cmd_skill_upsert(args):
     con.close()
 
 
-def _reject_mcode_provider_edit(app_type):
-    """MiniMax Code providers are YAML `custom_provider` entries (stored as a
-    JSON blob), not the TOML/env text this helper edits. Refuse with guidance
-    instead of writing a shape CC Switch will not read."""
+def _reject_structured_provider_edit(app_type):
+    """Refuse provider shapes this helper cannot safely edit.
+
+    MiniMax Code uses YAML custom-provider entries, Kimi Code uses a structured
+    `{provider, models}` JSON object, and Antigravity cards inject a provider
+    only into the terminal CCS launches. Do not pretend the TOML/env helpers
+    support these formats.
+    """
     if app_type == "mcode":
         raise SystemExit(
             "MiniMax Code providers live in ~/.minimax/config.yaml (custom_provider) and are "
             "edited through the CC Switch UI; this helper manages mcode prompts, skills and MCP "
             "flags only (provider-block/provider-env/provider-set-key do not support mcode)."
         )
+    if app_type == "kimi":
+        raise SystemExit(
+            "Kimi Code providers use the structured {provider, models} shape in "
+            "~/.kimi-code/config.toml and are edited through the CC Switch UI; this helper "
+            "manages kimi prompts, skills and MCP flags only. Set KIMI_CODE_HOME to relocate "
+            "the Kimi data directory."
+        )
+    if app_type == "agy":
+        raise SystemExit(
+            "Antigravity provider cards are launch-time only: they affect an agy process started "
+            "from the card's 'Open terminal with this provider' action, not a directly launched "
+            "agy. This helper manages agy prompts, skills and MCP flags only; use the CC Switch "
+            "card for providers."
+        )
 
 
 def cmd_provider_block(args):
     block = read_text(args.block_file) if args.block_file else (args.block or "")
     cc_home, db_path = resolve_paths(args)
+    _reject_structured_provider_edit(getattr(args, "app_type", None))
     run_preflight(args, cc_home, db_path)
     con = connect(db_path)
     cur = con.cursor()
@@ -489,7 +514,7 @@ def cmd_provider_block(args):
     ).fetchone()
     if not row:
         raise SystemExit(f"provider not found: {provider_id}")
-    _reject_mcode_provider_edit(row["app_type"])
+    _reject_structured_provider_edit(row["app_type"])
     obj = json.loads(row["settings_config"])
     if "config" not in obj or not isinstance(obj.get("config"), str):
         raise SystemExit(
@@ -560,6 +585,7 @@ def cmd_provider_block(args):
 
 def cmd_provider_env(args):
     cc_home, db_path = resolve_paths(args)
+    _reject_structured_provider_edit(getattr(args, "app_type", None))
     run_preflight(args, cc_home, db_path)
     con = connect(db_path)
     cur = con.cursor()
@@ -569,7 +595,7 @@ def cmd_provider_env(args):
     ).fetchone()
     if not row:
         raise SystemExit(f"provider not found: {provider_id}")
-    _reject_mcode_provider_edit(row["app_type"])
+    _reject_structured_provider_edit(row["app_type"])
     obj = json.loads(row["settings_config"])
     env = obj.get("env")
     if not isinstance(env, dict):
@@ -596,6 +622,7 @@ def cmd_provider_env(args):
 
 def cmd_provider_set_key(args):
     cc_home, db_path = resolve_paths(args)
+    _reject_structured_provider_edit(getattr(args, "app_type", None))
     run_preflight(args, cc_home, db_path)
     con = connect(db_path)
     cur = con.cursor()
@@ -605,7 +632,7 @@ def cmd_provider_set_key(args):
     ).fetchone()
     if not row:
         raise SystemExit(f"provider not found: {provider_id}")
-    _reject_mcode_provider_edit(row["app_type"])
+    _reject_structured_provider_edit(row["app_type"])
     obj = json.loads(row["settings_config"])
     if "config" not in obj or not isinstance(obj.get("config"), str):
         raise SystemExit(
@@ -648,7 +675,8 @@ def cmd_set_flags(args):
     if missing:
         raise SystemExit(
             f"{args.table}: column(s) not present in this CCS schema: {', '.join(missing)}; "
-            "upgrade CC Switch (enabled_pi needs 4.0+, enabled_mcode needs 3.20.4+)"
+            "upgrade CC Switch (enabled_pi needs 4.0+, enabled_agy needs 4.0.18+, "
+            "enabled_kimi needs 4.0.19+, enabled_mcode needs 3.20.4+)"
         )
     row = cur.execute(f"SELECT name FROM {args.table} WHERE name=?", (args.name,)).fetchone()
     if not row:
@@ -767,11 +795,30 @@ def cmd_doctor(args):
     tables = [r[0] for r in cur.execute("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name")]
     print(f"tables ({len(tables)}): {', '.join(tables)}")
     print("providers per app:")
-    for row in cur.execute(
+    provider_counts = {
+        row["app_type"]: (row["n"], row["current_n"] or 0)
+        for row in cur.execute(
         "SELECT app_type, COUNT(*) AS n, SUM(is_current) AS current_n "
         "FROM providers GROUP BY app_type ORDER BY app_type"
-    ):
-        print(f"  {row['app_type']}: total={row['n']} current={row['current_n'] or 0}")
+        )
+    }
+    for app in APP_TYPES:
+        total, current = provider_counts.get(app, (0, 0))
+        print(f"  {app}: total={total} current={current}")
+    for app in sorted(set(provider_counts) - set(APP_TYPES)):
+        total, current = provider_counts[app]
+        print(f"  {app}: total={total} current={current} [unknown]")
+    for table in ("mcp_servers", "skills"):
+        cols = table_columns(con, table)
+        availability = " ".join(
+            (
+                f"{app}=existence"
+                if table == "skills" and app == "pi"
+                else f"{app}={'yes' if col in cols else 'no'}"
+            )
+            for app, col in FLAG_COLUMNS
+        )
+        print(f"{table} flag columns: {availability}")
     con.close()
 
     settings_obj = None
@@ -2184,6 +2231,8 @@ def cmd_repair(args):
     apply = args.apply
     mode = args.mode
     target = args.target
+    if target == "provider":
+        _reject_structured_provider_edit(getattr(args, "app_type", None))
 
     if target == "config.toml":
         path = codex_config_path()
@@ -2230,6 +2279,10 @@ def cmd_repair(args):
             ).fetchone()
             if not row:
                 raise SystemExit(f"provider not found: {provider_id}")
+            app_row = con.execute(
+                "SELECT app_type FROM providers WHERE id=?", (provider_id,)
+            ).fetchone()
+            _reject_structured_provider_edit(app_row["app_type"] if app_row else None)
             obj = json.loads(row["settings_config"])
             try:
                 pmeta = json.loads(row["meta"] or "{}")
@@ -2444,6 +2497,7 @@ def build_parser():
         for flag in (
             "enable_codex", "enable_claude", "enable_gemini", "enable_opencode",
             "enable_hermes", "enable_grokbuild", "enable_mcode", "enable_pi",
+            "enable_agy", "enable_kimi",
         ):
             sp.add_argument(f"--{flag.replace('_', '-')}", dest=flag, action="store_true", default=False)
 
@@ -2504,7 +2558,10 @@ def build_parser():
     f = sub.add_parser("set-flags", description="Toggle enabled_* flags for an existing mcp_servers/skills row without touching other fields")
     f.add_argument("--table", required=True, choices=("mcp_servers", "skills"))
     f.add_argument("--name", required=True)
-    for key in ("codex", "claude", "gemini", "opencode", "hermes", "grokbuild", "mcode", "pi"):
+    for key in (
+        "codex", "claude", "gemini", "opencode", "hermes", "grokbuild", "mcode", "pi",
+        "agy", "kimi",
+    ):
         f.add_argument(f"--{key}", type=int, choices=(0, 1), default=None, help="1 = enable, 0 = disable")
     f.set_defaults(func=cmd_set_flags)
 

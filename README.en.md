@@ -7,7 +7,7 @@
 
 > [简体中文](README.md) | English
 
-A portable, publishable skill for operating **CC Switch (CCS)** safely: global prompts, skills, MCP servers, providers, and the Codex model catalog, across the ten apps CCS manages.
+A portable, publishable skill for operating **CC Switch (CCS)** safely: global prompts, skills, MCP servers, providers, and the Codex model catalog, across the twelve apps CCS manages.
 
 The package is self-contained: no installer script, no external helper dependencies. Installation is just copying/unzipping the skill folder into an agent's skills directory (or importing the zip from CC Switch).
 
@@ -26,7 +26,7 @@ CC Switch spreads its configuration across a database, `settings.json`, and each
 This skill turns safe maintenance into one repeatable workflow:
 
 - **No database access required**: `mcp-upsert`, `prompt-set`, `skill-upsert`, `provider-block`, `provider-env`, and `set-flags` cover everyday tasks
-- **Maintain per agent or in bulk, all ten covered**: Codex, Claude Code, Claude Desktop, Gemini, Grok Build, OpenCode, OpenClaw, Hermes, Pi, and MiniMax Code — update just one agent or several at once, no more checking each one by hand
+- **Maintain per agent or in bulk, all twelve covered**: Codex, Claude Code, Claude Desktop, Gemini, Grok Build, OpenCode, OpenClaw, Hermes, Pi, MiniMax Code, Kimi Code, and Antigravity CLI — update just one agent or several at once, no more checking each one by hand
 - **Backup first, verify after**: backup → stop CCS → edit → validate → restart → re-check
 - **Automatic path discovery, cross-platform**: honors `CC_SWITCH_HOME` / `~/.cc-switch` on Windows, macOS, and Linux
 - **Chinese-safe by design**: UTF-8-safe reads and writes
@@ -35,10 +35,11 @@ This skill turns safe maintenance into one repeatable workflow:
 
 ## Compatibility
 
-- Designed and tested with **CC Switch 4.0.15** (database schema v20); 4.0.9–4.0.15 did not change the schema. 3.20.4 (v19), 3.20.1–3.20.3 (v18) and 3.20.0 (v17) remain readable, but **4.0 migrates v19 → v20 on first start** (`mcp_servers` gains `enabled_pi`) and older CCS versions then refuse to open the database — keep the automatic backup.
+- Designed and tested with **CC Switch 4.0.19** (database schema v22). 4.0.18 moved v20 to v21 and added `enabled_agy` to MCP/Skills; 4.0.19 moved v21 to v22 and added `enabled_kimi`. After those migrations, older CCS versions refuse to open the database — keep the automatic backup.
+- Historical databases remain readable where the required columns exist: v17 (3.20.0), v18 (3.20.1–3.20.3), v19 (3.20.4), v20 (4.0.16–4.0.17), and v21 (4.0.18). Once migrated to v22, older CCS releases cannot open the database directly.
 - What 4.0 changes: **the common-config snippet feature is gone** (shared settings now live in the client config file and survive provider switches; a model or effort picked inside the client reverts to the provider's value on switch); a third mode, **stack/aggregation** (Claude Code and Codex, plus Claude Desktop since 4.0.13; per-model dispatch, no failover; state in the device-local `~/.cc-switch/live-state.json`, Claude Code models in `providers.meta.stackModels`); config writing replaces only key fields (the #6719 fix); MCP syncs to Pi (`~/.pi/agent/mcp.json`, `enabled_pi`); Codex 0.158+'s MCP `type` rejection is fixed (CCS 4.0 strips it on write); optional Codex session compression writes `[features] local_thread_store_compression`; GitHub Copilot accounts work on Codex (router on).
 - **`common-config` only works on CCS ≤ 3.20.4 (schema ≤ v19)**; on v20 every `common-config` subcommand is refused with guidance: shared keys belong in the client live config, provider-specific fields in the card (`provider-block` / `provider-set-key` / `provider-env`).
-- mcode commands need 3.20.4+ (`prompt-set --app-type mcode`, `--enable-mcode`, `set-flags --mcode 1`); Pi MCP (`mcp-upsert --enable-pi`, `set-flags --pi`) needs 4.0+. Provider editing stays in the CC Switch UI — the provider-* commands refuse mcode's YAML structure.
+- mcode needs 3.20.4+; Pi MCP (`--enable-pi`) needs 4.0+; Antigravity (`--enable-agy`) needs 4.0.18+; Kimi Code (`--enable-kimi`) needs 4.0.19+. Kimi's structured provider data, Agy's terminal-launch cards, and mcode's YAML providers are managed in the CC Switch UI; the provider-* commands explicitly refuse those shapes.
 - Legacy 3.20.x behavior (missing-`model_provider` takeover routing, universal-sync child settings, proxy retry/timeout cross-writes, Kimi/DeepSeek presets) and the full 4.0 change list are in `references/migration.md`.
 - Proxy-managed OAuth cards (xAI OAuth / GitHub Copilot) are forced to `requires_openai_auth = false` (the local proxy injects the token); `check --strict` flags the wrong value, and `repair --mode codex-0149` fixes it early.
 - Run `python scripts/ccs_db.py doctor` to check the schema, each app's current mode (direct/route/stack), malformed state files, and the Codex auth-preservation guard before operating.
@@ -48,9 +49,9 @@ This skill turns safe maintenance into one repeatable workflow:
 
 - Safe write workflow: backup → stop CCS → edit → validate → restart → re-check.
 - UTF-8-safe database helper (`scripts/ccs_db.py`) for Chinese content.
-- Covers all 10 managed apps: codex, claude, claude-desktop, gemini, grokbuild, opencode, openclaw, hermes, pi, mcode.
+- Covers all 12 managed apps: codex, claude, claude-desktop, gemini, grokbuild, opencode, openclaw, hermes, pi, mcode, kimi, agy.
 - Cross-platform: `CC_SWITCH_HOME` / `~/.cc-switch` discovery, PowerShell and bash examples.
-- `doctor` subcommand prints resolved paths, schema version, per-app provider availability, and each app's current mode (direct/route/stack, from `live-state.json`); it also warns about malformed `settings.json` / `live-state.json` and a disabled Codex official-auth preservation guard.
+- `doctor` prints resolved paths, the schema, all 12 apps and provider counts, MCP/Skills flag availability, and each app's current mode (direct/route/stack from `live-state.json`); it also warns about malformed `settings.json` / `live-state.json` and a disabled Codex official-auth preservation guard.
 
 ## How it works
 
@@ -87,7 +88,7 @@ CCSwitch-operations/
 ├─ assets/ccswitch-operations-banner.png  # Social preview banner (repo only)
 ├─ references/
 │  ├─ architecture.md          # Architecture quick reference
-│  ├─ apps.md                  # The 10 managed apps matrix
+│  ├─ apps.md                  # The 12 managed apps matrix
 │  ├─ operations.md            # Command templates (PowerShell + bash)
 │  ├─ pitfalls.md              # Known pitfalls
 │  ├─ migration.md             # Official CCS version behavior changes
@@ -148,6 +149,7 @@ python scripts/ccs_db.py repair --target provider --mode mcp-type         # dry-
 # Examples (see references/operations.md for the full set)
 python scripts/ccs_db.py mcp-upsert --name my-server --config-file server_config.json --enable-codex --enable-claude
 python scripts/ccs_db.py mcp-upsert --name my-server --config-file server_config.json --enable-pi  # Pi 1.0 (CCS 4.0+)
+python scripts/ccs_db.py mcp-upsert --name my-server --config-file server_config.json --enable-agy --enable-kimi  # CCS 4.0.19+
 python scripts/ccs_db.py prompt-set --app-type codex --content-file prompt.txt
 python scripts/ccs_db.py prompt-set --app-type mcode --content-file mcode-prompt.txt  # MiniMax Code (32 KiB limit)
 python scripts/ccs_db.py skill-upsert --name my-skill --description "My skill" --enable-codex
@@ -163,10 +165,10 @@ Set `CC_SWITCH_HOME` to override the CC Switch home directory (default: `~/.cc-s
 To package the skill into a distributable zip (for example to install it in CC Switch or share it manually):
 
 ```bash
-python scripts/build-zip.py --version 1.3.1
+python scripts/build-zip.py --version 1.4.0
 ```
 
-Output: `dist/CCSwitch-operations-v1.3.1.zip`.
+Output: `dist/CCSwitch-operations-v1.4.0.zip`.
 
 ## License
 

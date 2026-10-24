@@ -2,7 +2,7 @@
 
 只记录 CC Switch 官方版本带来的行为变化；不包含任何用户/环境相关说明。
 
-## 4.0（正式版 4.0.4，2026-10-06；含 4.0.5–4.0.15 修复）
+## 4.0（正式版 4.0.4，2026-10-06；含 4.0.5–4.0.19 修复）
 
 - **数据库迁移 v19 → v20**：`mcp_servers` 新增 `enabled_pi`（MCP 同步到 Pi 1.0）。首次启动自动迁移并尝试备份到 `<cc-home>/backups/`；运行过 4.0 后 3.x 会以“数据库版本过新”拒绝打开。
 - **配置写入重写（#6719 修复）**：供应商编辑页保存只替换地址、Key、模型等关键字段，其余内容（顶层键、`[plugins]`/`[projects]`/`[mcp_servers.*]`、注释、`# >>> … <<<` 标记）逐字节保留；零改动保存与保存前逐字节一致；不再剥离/合并通用配置；url-only 远程 MCP 不再写成空 `command`，Codex 的 `[mcp_servers.*]` 不再写 `type`。**已损坏的存量条目不会自动修**：在 MCP 面板把服务器关掉再打开重写，或用本技能 `check --strict` / `repair` / `mcp-upsert`。
@@ -15,7 +15,11 @@
 - **4.0.13**：Claude Desktop 获得直连/路由/聚合模式和对应模式面板；Codex 新增自动审批模型、provider 卡内 `[agents] default_subagent_model` / `default_subagent_reasoning_effort`，聚合页可单独选择子代理模型；保存 Codex 配置时能识别双引号、单引号及带空格的 `[model_providers.*]` 表头；GPT 系列自动补全窗口封顶 272K，1M 模型预设默认声明。schema 仍为 v20。
 - **4.0.14**：用量面板的币种、侧栏指标、请求日志列可配置；Skills 仓库压缩包上限提升到 512 MiB；Claude Desktop 的 1M 模型只显示一行；schema 仍为 v20。
 - **4.0.15**：Windows 上 `settings.json` 改为原子替换，并可从 BOM、尾部垃圾或截断内容中恢复；损坏原文件保留为 `settings.json.broken-<time>.bak`。此前已被重置的设置不会找回。修复路由会话识别、Codex 坏工具调用历史、DeepSeek 工具历史、WebDAV/S3 慢速传输和 WSL Hermes 会话读取；schema 仍为 v20。
-- **升级须知**：升级前建议手动再备份一次（自动备份失败只记日志）；Codex 模型目录/会话分组的修复要等下一次写入（升级后切换一次供应商）；已有 MCP 配置重新同步一次以清掉旧 `type`；时间 MCP 预设改用 `uvx mcp-server-time`（存量需手改命令）；MiniMax Code 可在「应用」页安装与升级。使用带引号的 provider 表头时，确认本技能版本至少为 v1.3.1。
+- **4.0.16**：托盘快捷面板；Codex 正常路由的退出/进入会保留登录，不再反复丢失 ChatGPT 登录；自定义 GPT 窗口可作用于同名官方模型，272K 限制只用于借用原厂数据的窗口；Chat 上游并行工具结果、Claude 5.5 模型 ID 和若干供应商标识问题修复。schema 仍为 v20。
+- **4.0.17**：修复过期路由登录回填、Windows 路由端口继承、并发多选 MCP 写覆盖、url-only MCP 在 Hermes/OpenCode 被写成空命令，以及 TOML 字符串内部弯引号被改写。schema 仍为 v20。
+- **4.0.18**：新增第 11 个应用 **Antigravity CLI（`agy`）**；schema v20→v21，MCP/Skills 增加 `enabled_agy`。供应商卡只对 CCS 启动的终端生效；MCP/Skills/Prompt 使用 `~/.gemini/config`，MCP 支持 stdio 和流式 HTTP，不支持 SSE。macOS 授权中心可管理多个 Antigravity 账号。
+- **4.0.19**：新增第 12 个应用 **Kimi Code（`kimi`）**；schema v21→v22，MCP/Skills 增加 `enabled_kimi`。CLI 与桌面版共享 `~/.kimi-code`，供应商为累加模式；MCP → `mcp.json`、Skills → `skills/`、Prompt → `AGENTS.md`。Kimi 官方账号支持多账号；供应商结构是 `{provider, models}`。
+- **升级须知**：升级前建议手动再备份一次（自动备份失败只记日志）；Codex 模型目录/会话分组的修复要等下一次写入（升级后切换一次供应商）；已有 MCP 配置重新同步一次以清掉旧 `type`；时间 MCP 预设改用 `uvx mcp-server-time`（存量需手改命令）；MiniMax Code、Kimi Code 与 Antigravity CLI 可在「应用」页安装和升级。运行过 4.0.19 后数据库为 v22，旧版 CCS 会拒绝打开。使用带引号的 provider 表头时，确认本技能版本至少为 v1.3.1；支持 Agy/Kimi 完整标志时使用 v1.4.0+。
 
 ## 3.20.4（2026-09-22）
 
