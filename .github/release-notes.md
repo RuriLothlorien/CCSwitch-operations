@@ -1,13 +1,13 @@
-# v1.4.0 增量更新
+# v1.5.0 增量更新
 
-## 对齐 CC Switch 4.0.19 / schema v22
+## 对齐 CC Switch 4.0.23 / schema v24
 
-- **新增 Kimi Code（`kimi`）支持**：可用于 MCP、Skills、Prompt 和对应启用标志；支持 `KIMI_CODE_HOME`、多供应商共存、`~/.kimi-code/mcp.json`、`~/.kimi-code/skills` 与 `~/.kimi-code/AGENTS.md`。
-- **新增 Antigravity CLI（`agy`）支持**：可用于 MCP、Skills、Prompt 和 `enabled_agy`；MCP/Skills/Prompt 同步到共享的 `~/.gemini/config`，MCP 支持 stdio/HTTP，不支持 SSE。
-- **数据库迁移对齐**：4.0.18 从 schema v20 升到 v21（`enabled_agy`），4.0.19 升到 v22（`enabled_kimi`）；迁移后旧版 CCS 会拒绝打开数据库。
-- **供应商安全边界**：Kimi 的结构化 `{provider, models}`、Agy 的启动终端供应商以及 mcode 的 YAML 供应商不会被 provider-* 命令误写；工具会明确拒绝并提示使用 CCS UI/卡片。
-- **`doctor` 增强**：显示 12 个受管应用、每个应用的 provider 数量、MCP/Skills 新标志列是否可用，以及原有模式、JSON 和 Codex auth 安全告警。
-- **文档与示例**：更新中英 README、12 应用矩阵、架构、操作模板、迁移说明和已知坑，覆盖 4.0.16–4.0.19 的相关行为变化。
+- **新增 Oh My Pi（`omp`）支持**：MCP、Skills、Prompt 和 `enabled_omp`；兼容默认/命名 profile、目录覆盖和 Skills“存在即启用”语义。
+- **新增 DeepSeek Harness（`dsh`）完整供应商支持**：新增 `dsh-provider-get/set/remove`，事务式更新 web/desktop 及已存在的 headless/acp `cordis.patch.yml`、`.credentials.yaml` 和数据库行。
+- **DSH 安全保护**：拒绝 profile 副本不一致、home-level `llm-pi-ai` 覆盖、flow YAML、anchors/tags；通用 provider-* 命令不会误写 DSH。
+- **数据库迁移对齐**：4.0.20 升至 v23（MCP `enabled_omp`），4.0.22 升至 v24（MCP/Skills `enabled_dsh` 与内部 `parser_state`）。
+- **Codex MCP 审计扩展**：`check --strict` 和 `repair --mode mcp-type` 现在清理 Codex 拒绝的 `type`、`timeout`、`autoApprove`。
+- **14 应用支持**：MCP/Skills/Prompt、启用标志和 `doctor` 全部覆盖新增应用；补充 4.0.20–4.0.23 行为变化、原生供应商编辑器、Claude 多账号和路由思考档位说明。
 
 ## 更新安装方法
 
@@ -31,14 +31,14 @@ python scripts/ccs_db.py doctor --audit
 
 ---
 
-## v1.4.0 Incremental (English)
+## v1.5.0 Incremental (English)
 
-- **Kimi Code (`kimi`) support**: MCP, Skills, Prompts and enable flags; supports `KIMI_CODE_HOME`, additive providers, `~/.kimi-code/mcp.json`, `~/.kimi-code/skills`, and `~/.kimi-code/AGENTS.md`.
-- **Antigravity CLI (`agy`) support**: MCP, Skills, Prompts and `enabled_agy`; shared customizations live under `~/.gemini/config`; MCP supports stdio/HTTP but not SSE.
-- **Schema alignment**: CC Switch 4.0.18 moved schema v20 to v21 (`enabled_agy`), and 4.0.19 moved v21 to v22 (`enabled_kimi`). Older CCS releases cannot open the migrated database.
-- **Provider safety boundaries**: Kimi's structured `{provider, models}`, Agy's terminal-launch cards, and mcode's YAML provider shape are refused by provider-* commands instead of being written in an incompatible format.
-- **`doctor` improvements**: reports all 12 managed apps, provider counts, availability of the new MCP/Skills flags, plus the existing mode/JSON/Codex-auth health warnings.
-- **Documentation**: updated READMEs, the 12-app matrix, architecture, operations, migration history, and pitfalls for the relevant 4.0.16–4.0.19 changes.
+- **Oh My Pi (`omp`) support**: MCP, Skills, Prompts and `enabled_omp`, including default/named profiles, directory overrides, and exists-equals-enabled skill semantics.
+- **Full DeepSeek Harness (`dsh`) provider support**: new `dsh-provider-get/set/remove` commands atomically update every profile patch, `.credentials.yaml`, and the database row.
+- **DSH safety**: refuses inconsistent profile copies, home-level `llm-pi-ai` shadowing, flow YAML, anchors, tags and aliases; generic provider-* commands never write DSH.
+- **Schema alignment**: CC Switch 4.0.20 moved to v23 (`enabled_omp`); 4.0.22 moved to v24 (`enabled_dsh` and internal `parser_state`).
+- **Codex MCP audit**: `check --strict` and `repair --mode mcp-type` now clean the Codex-invalid `type`, `timeout`, and `autoApprove` keys.
+- **14-app coverage**: MCP/Skills/Prompt flags and `doctor` now cover both new apps; docs include 4.0.20–4.0.23 behavior, native provider editors, Claude multi-account support, and expanded thinking levels.
 
 ### Update / Install
 

@@ -2,7 +2,7 @@
 
 只记录 CC Switch 官方版本带来的行为变化；不包含任何用户/环境相关说明。
 
-## 4.0（正式版 4.0.4，2026-10-06；含 4.0.5–4.0.19 修复）
+## 4.0（正式版 4.0.4，2026-10-06；含 4.0.5–4.0.23 修复）
 
 - **数据库迁移 v19 → v20**：`mcp_servers` 新增 `enabled_pi`（MCP 同步到 Pi 1.0）。首次启动自动迁移并尝试备份到 `<cc-home>/backups/`；运行过 4.0 后 3.x 会以“数据库版本过新”拒绝打开。
 - **配置写入重写（#6719 修复）**：供应商编辑页保存只替换地址、Key、模型等关键字段，其余内容（顶层键、`[plugins]`/`[projects]`/`[mcp_servers.*]`、注释、`# >>> … <<<` 标记）逐字节保留；零改动保存与保存前逐字节一致；不再剥离/合并通用配置；url-only 远程 MCP 不再写成空 `command`，Codex 的 `[mcp_servers.*]` 不再写 `type`。**已损坏的存量条目不会自动修**：在 MCP 面板把服务器关掉再打开重写，或用本技能 `check --strict` / `repair` / `mcp-upsert`。
@@ -19,7 +19,11 @@
 - **4.0.17**：修复过期路由登录回填、Windows 路由端口继承、并发多选 MCP 写覆盖、url-only MCP 在 Hermes/OpenCode 被写成空命令，以及 TOML 字符串内部弯引号被改写。schema 仍为 v20。
 - **4.0.18**：新增第 11 个应用 **Antigravity CLI（`agy`）**；schema v20→v21，MCP/Skills 增加 `enabled_agy`。供应商卡只对 CCS 启动的终端生效；MCP/Skills/Prompt 使用 `~/.gemini/config`，MCP 支持 stdio 和流式 HTTP，不支持 SSE。macOS 授权中心可管理多个 Antigravity 账号。
 - **4.0.19**：新增第 12 个应用 **Kimi Code（`kimi`）**；schema v21→v22，MCP/Skills 增加 `enabled_kimi`。CLI 与桌面版共享 `~/.kimi-code`，供应商为累加模式；MCP → `mcp.json`、Skills → `skills/`、Prompt → `AGENTS.md`。Kimi 官方账号支持多账号；供应商结构是 `{provider, models}`。
-- **升级须知**：升级前建议手动再备份一次（自动备份失败只记日志）；Codex 模型目录/会话分组的修复要等下一次写入（升级后切换一次供应商）；已有 MCP 配置重新同步一次以清掉旧 `type`；时间 MCP 预设改用 `uvx mcp-server-time`（存量需手改命令）；MiniMax Code、Kimi Code 与 Antigravity CLI 可在「应用」页安装和升级。运行过 4.0.19 后数据库为 v22，旧版 CCS 会拒绝打开。使用带引号的 provider 表头时，确认本技能版本至少为 v1.3.1；支持 Agy/Kimi 完整标志时使用 v1.4.0+。
+- **4.0.20**：新增第 13 个应用 **Oh My Pi（`omp`）**；schema v22→v23，仅 MCP 增加 `enabled_omp`，Skills 按原生目录存在与否判定。供应商是 `models.yml`，MCP → `mcp.json`，Skills/Prompt 在 agent 目录；支持命名 profile 和目录覆盖。Skills 下载补 User-Agent，Kimi 子代理和 Antigravity 子代理用量修复。
+- **4.0.21**：Claude 多官方订阅账号通过独立 `CLAUDE_CONFIG_DIR` 管理，令牌仍由 Claude Code 保存；Codex MCP 不再写入其他客户端的 `timeout` / `autoApprove`，旧 live 值需清理；Codex 路由地址改为按 `model_provider` 选中表解析。
+- **4.0.22**：新增第 14 个应用 **DeepSeek Harness（`dsh`）**；schema v23→v24，MCP/Skills 增加 `enabled_dsh`，`session_log_sync` 增加内部 `parser_state`。供应商/MCP 分布在 web/desktop/headless/acp profile patch，凭据存 `.credentials.yaml`；Oh My Pi 用量开始统计；Codex `[[skills.config]]` 数组表误写修复。
+- **4.0.23**：Kimi/MiniMax/OMP 供应商编辑器改为原生文件格式；Claude 路由思考档位扩展到更多 OpenAI/Gemini 模型；Antigravity/MiniMax 用量增加耗时和首字时间；供应商表单互相覆盖、轻量模式窗口、DeepSeek Harness 链接 profile 编辑等问题修复。schema 仍为 v24。
+- **升级须知**：升级前建议手动再备份一次；Codex 模型目录/会话分组的修复要等下一次写入；已有 MCP 配置重新同步一次；运行过 4.0.22 后数据库为 v24，旧版 CCS 会拒绝打开。支持 Agy/Kimi 完整标志需 v1.4.0+；支持 OMP/DSH 与 schema v24 需 v1.5.0+。
 
 ## 3.20.4（2026-09-22）
 

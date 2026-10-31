@@ -1,4 +1,4 @@
-# 十二大受管应用矩阵（CCS 4.0.19）
+# 十四大受管应用矩阵（CCS 4.0.23）
 
 路径均使用可移植写法：`~` 在 Windows 上等同于 `%USERPROFILE%`；macOS/Linux 为 `$HOME`。
 
@@ -16,11 +16,13 @@
 | mcode | 累加 | `~/.minimax/config.yaml`（`custom_provider`） | `~/.minimax/skills` | `~/.minimax/AGENTS.md`（单条 ≤32 KiB） | `~/.minimax/mcp.json` | 无 |
 | kimi | 累加 | `~/.kimi-code/config.toml`（`KIMI_CODE_HOME` 可覆盖） | `~/.kimi-code/skills` | `~/.kimi-code/AGENTS.md` | `~/.kimi-code/mcp.json`（stdio/HTTP/SSE，`enabled_kimi`） | 无 |
 | agy | 终端启动时指定供应商 | `~/.gemini/antigravity-cli/settings.json` 为只读现状；卡片 Key/URL 只在 CCS 打开的终端生效 | `~/.gemini/config/skills` | `~/.gemini/config/AGENTS.md` | `~/.gemini/config/mcp_config.json`（stdio/HTTP，无 SSE，`enabled_agy`） | 无 |
+| omp | 累加 | `~/.omp/agent` 或 profile 下的 `models.yml` / `config.yml` | `<omp agent>/skills`（存在即启用） | `<omp agent>/AGENTS.md` | `<omp agent>/mcp.json`（`enabled_omp`） | 无 |
+| dsh | 累加 | `DSH_HOME` 或 `~/.dsh`；profiles 下的 `cordis.patch.yml`、`.credentials.yaml` | `$DSH_HOME/skills`（`enabled_dsh`） | `$DSH_HOME/AGENTS.md` | web/desktop/headless/acp profile patches（stdio/HTTP，`enabled_dsh`） | 无 |
 
 ## 模式说明
 
 - **切换模式**（claude / codex / gemini / claude-desktop / grokbuild）：只把当前供应商写入 live 配置，切换供应商会重写对应配置文件。
-- **累加模式**（opencode / openclaw / hermes / pi / mcode / kimi）：多个供应商共存于原生配置，供应商“启用”等于其配置键存在于原生文件。
+- **累加模式**（opencode / openclaw / hermes / pi / mcode / kimi / omp / dsh）：多个供应商共存于原生配置，供应商“启用”等于其配置键存在于原生文件。
 - **Antigravity CLI**：不是普通的全局切换应用。供应商只注入由 CCS 卡片“使用此供应商打开终端”启动的 `agy` 进程；直接在别处运行 `agy` 仍使用它自己的 Google 登录。
 - **聚合（Stack）模式**（CCS 4.0；4.0.13 起支持 claude / codex / claude-desktop）：多家供应商的模型一起出现在客户端模型选择器里，经本地路由按所选模型分发，不提供故障转移；成员和模式状态在设备本地 `~/.cc-switch/live-state.json`，Claude Code 的发布模型在 `providers.meta.stackModels`。内部状态值 `proxy` 在界面和 `doctor` 中显示为 `route`。
 
@@ -31,4 +33,6 @@
 - **Codex**：官方/内置 MCP（如 `openaiDeveloperDocs`）在 `mcp_servers` 表中没有行属正常，不要补录。
 - **Kimi Code（4.0.19+，`kimi`）**：CLI 与桌面版共享 `~/.kimi-code`；多供应商共存，默认模型和子代理引用的供应商不能移除。供应商在 DB 中是结构化 `{provider, models}`，不是本技能 provider-* 命令支持的 TOML/env 形态。
 - **Antigravity（4.0.18+，`agy`）**：`~/.gemini/config` 可能和 Antigravity IDE 共用；修改 MCP/Skills/提示词前确认影响范围。SSE MCP 不支持，应该桥接到 stdio 或流式 HTTP。
+- **Oh My Pi（4.0.20+，`omp`）**：agent 目录可能是默认目录或 `OMP_PROFILE`/`PI_PROFILE` 选中的 profile，也受 `PI_CONFIG_DIR`、`PI_CODING_AGENT_DIR` 和 CCS 目录覆盖影响。供应商是 `models.yml`，可能含 anchors/tags/flow YAML；provider-* 命令必须拒绝。
+- **DeepSeek Harness（4.0.22+，`dsh`）**：Web/Desktop/已初始化的 headless/acp 共用同一供应商和 MCP 集合；每个 profile 分别写 `cordis.patch.yml`，凭据只在 `.credentials.yaml`。使用 `dsh-provider-get/set/remove`，不要直接写 YAML 或 DB。
 - **MiniMax Code（mcode，3.20.4+）**：数据目录按 `MINIMAX_DATA_DIR` → `MAVIS_DATA_DIR` → `~/.minimax` 解析；默认模型、登录、云端功能与会话删除都归 MiniMax 自己，CCS 不参与本地代理、故障转移、托盘、通用配置与 Profiles。MCP/Skills 对 mcode 默认关闭（`enabled_mcode=0`），手动打开前 CCS 不写 `~/.minimax`；供应商是 YAML `custom_provider` 条目（本技能不支持编辑，请走 CCS 界面），本技能只管理它的提示词、Skills 与 MCP 启用标志。

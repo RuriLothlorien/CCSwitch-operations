@@ -1,0 +1,33 @@
+{
+  "name": "Example DSH Provider",
+  "api": "openai-responses",
+  "options": {
+    "baseURL": "https://api.example.com/v1",
+    "apiKey": "<your-api-key>",
+    "headers": {
+      "X-Client": "cc-switch"
+    }
+  },
+  "models": {
+    "example-model": {
+      "name": "Example Model",
+      "limit": {
+        "context": 131072,
+        "output": 8192
+      },
+      "modalities": {
+        "input": ["text", "image"],
+        "output": ["text"]
+      },
+      "reasoningEfforts": {
+        "off": null,
+        "low": "low",
+        "medium": "medium",
+        "high": "high"
+      },
+      "compat": {
+        "supportsStore": false
+      }
+    }
+  }
+}

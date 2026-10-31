@@ -14,6 +14,8 @@ Subcommands:
   skill-upsert    register a local skill and refresh its content_hash
   provider-block  append/replace/insert a TOML block in a provider's config
   provider-env    set/remove environment variables on a provider
+  dsh-provider-get/set/remove  manage DeepSeek Harness providers across profiles,
+                  credentials and the database
   set-flags       toggle enabled_* flags without touching other fields
   check           scan for likely mojibake '?' in text/JSON/TOML fields
   check --strict  also run structural safety checks (MCP semantics, markers,
@@ -22,8 +24,8 @@ Subcommands:
                   missing, inline model_providers); proxy-managed OAuth cards
                   are judged by the 3.20.2 flag rule; a Codex card whose stored
                   API key was wiped by CCS #7434 is reported when it can be
-                  restored from the provider table; `type` keys in Codex
-                  [mcp_servers.*] are reported because Codex 0.158+ rejects them)
+                  restored from the provider table; Codex-invalid MCP keys
+                  type/timeout/autoApprove are reported)
   doctor          print resolved paths, schema, and per-app provider status
   doctor --audit  read-only three-way consistency audit
   doctor --compare-backup <db>  diff current DB against a backup
@@ -34,7 +36,7 @@ Subcommands:
                   a routable provider table and flips requires_openai_auth on
                   proxy OAuth cards; codex-key restores auth.OPENAI_API_KEY from
                   the provider table's experimental_bearer_token; mcp-type strips
-                  `type` lines that Codex 0.158+ rejects)
+                  type/timeout/autoApprove lines that Codex rejects)
   common-config   get/set/check/extract/set-key/remove-key/status/enable/disable
 
 Safety model:
@@ -61,6 +63,7 @@ import sqlite3
 import sys
 import time
 from pathlib import Path
+from urllib.parse import urlparse
 
 try:
     import tomllib
@@ -86,6 +89,8 @@ APP_TYPES = (
     "mcode",
     "kimi",
     "agy",
+    "omp",
+    "dsh",
 )
 
 # CC Switch 4.0 (schema v20) removed the common-config snippet; the DB may
@@ -117,6 +122,8 @@ FLAG_COLUMNS = (
     ("pi", "enabled_pi"),
     ("agy", "enabled_agy"),
     ("kimi", "enabled_kimi"),
+    ("omp", "enabled_omp"),
+    ("dsh", "enabled_dsh"),
 )
 
 # Only these app types have a common-config snippet and the per-provider
@@ -278,10 +285,10 @@ def _unavailable_flag_notes(table, flag_cols, args):
     for app, col in FLAG_COLUMNS:
         if col in have or not getattr(args, f"enable_{app}", False):
             continue
-        if table == "skills" and app == "pi":
+        if table == "skills" and app in ("pi", "omp"):
             notes.append(
-                "[note] Pi skills are enabled by existence (no enabled_pi column); "
-                "--enable-pi is ignored for skills"
+                f"[note] {app} skills are enabled by existence (no enabled_{app} column); "
+                f"--enable-{app} is ignored for skills"
             )
         else:
             notes.append(
@@ -498,6 +505,632 @@ def _reject_structured_provider_edit(app_type):
             "agy. This helper manages agy prompts, skills and MCP flags only; use the CC Switch "
             "card for providers."
         )
+    if app_type == "omp":
+        raise SystemExit(
+            "Oh My Pi providers live in models.yml and are edited through the CC Switch UI; "
+            "this helper manages omp prompts, skills and MCP flags only. models.yml may contain "
+            "YAML profiles, anchors or tags that provider-block cannot safely rewrite."
+        )
+    if app_type == "dsh":
+        raise SystemExit(
+            "DeepSeek Harness providers span cordis.patch.yml profiles, .credentials.yaml and the "
+            "provider database row. Use 'dsh-provider-get/set/remove' for this app, or the CC "
+            "Switch UI; provider-block/provider-env/provider-set-key do not support dsh."
+        )
+
+
+_YAML_SAFE_KEY = re.compile(r"^[A-Za-z_][A-Za-z0-9_.-]*$")
+_YAML_RESERVED_WORDS = {"null", "true", "false", "yes", "no", "on", "off"}
+
+
+def _read_optional_text(path):
+    try:
+        return Path(path).read_text(encoding="utf-8-sig")
+    except FileNotFoundError:
+        return None
+
+
+def _atomic_write_text(path, text, private=False):
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp = path.with_name(f".{path.name}.tmp-{os.getpid()}-{time.time_ns()}")
+    try:
+        with open(temp, "w", encoding="utf-8", newline="\n") as f:
+            f.write(text)
+            f.flush()
+            os.fsync(f.fileno())
+        if private and os.name != "nt":
+            os.chmod(temp, 0o600)
+        os.replace(temp, path)
+    finally:
+        if temp.exists():
+            temp.unlink()
+
+
+def _yaml_key(key):
+    value = str(key)
+    if _YAML_SAFE_KEY.fullmatch(value) and value.lower() not in _YAML_RESERVED_WORDS:
+        return value
+    return json.dumps(value, ensure_ascii=False)
+
+
+def _yaml_scalar(value):
+    if value is None:
+        return "null"
+    if value is True:
+        return "true"
+    if value is False:
+        return "false"
+    if isinstance(value, int):
+        return str(value)
+    if isinstance(value, float):
+        return repr(value)
+    if isinstance(value, str):
+        return json.dumps(value, ensure_ascii=False)
+    raise SystemExit(f"unsupported YAML scalar: {type(value).__name__}")
+
+
+def _yaml_inline(value):
+    if isinstance(value, dict) and not value:
+        return "{}"
+    if isinstance(value, list) and not value:
+        return "[]"
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return _yaml_scalar(value)
+    return None
+
+
+def _render_yaml(value, indent=0):
+    """Render the JSON-compatible subset used by DSH provider config."""
+    pad = " " * indent
+    lines = []
+    if isinstance(value, dict):
+        for key, item in value.items():
+            prefix = f"{pad}{_yaml_key(key)}:"
+            inline = _yaml_inline(item)
+            if inline is not None:
+                lines.append(f"{prefix} {inline}")
+            else:
+                lines.append(prefix)
+                lines.extend(_render_yaml(item, indent + 2))
+        return lines
+    if isinstance(value, list):
+        for item in value:
+            inline = _yaml_inline(item)
+            if inline is not None:
+                lines.append(f"{pad}- {inline}")
+            elif isinstance(item, dict):
+                first = True
+                for key, child in item.items():
+                    prefix = f"{pad}{'- ' if first else '  '}{_yaml_key(key)}:"
+                    child_inline = _yaml_inline(child)
+                    if child_inline is not None:
+                        lines.append(f"{prefix} {child_inline}")
+                    else:
+                        lines.append(prefix)
+                        lines.extend(_render_yaml(child, indent + 4))
+                    first = False
+            else:
+                lines.append(f"{pad}-")
+                lines.extend(_render_yaml(item, indent + 2))
+        return lines
+    raise SystemExit(f"unsupported YAML node: {type(value).__name__}")
+
+
+def _line_indent(line):
+    if line.startswith("\t"):
+        raise SystemExit("DSH YAML uses tabs; refusing to rewrite it")
+    return len(line) - len(line.lstrip(" "))
+
+
+def _meaningful(line):
+    stripped = line.strip()
+    return bool(stripped and not stripped.startswith("#"))
+
+
+def dsh_home(args):
+    override = getattr(args, "dsh_home", None)
+    if override:
+        return Path(override).expanduser()
+    env = os.environ.get("DSH_HOME")
+    if env:
+        return Path(env).expanduser()
+    return Path.home() / ".dsh"
+
+
+def dsh_profile_paths(home):
+    base = Path(home) / "profiles"
+    paths = [base / "web" / "cordis.patch.yml", base / "desktop" / "cordis.patch.yml"]
+    for name in ("headless", "acp"):
+        path = base / name / "cordis.patch.yml"
+        if path.exists():
+            paths.append(path)
+    unique = []
+    seen = set()
+    for path in paths:
+        try:
+            identity = path.parent.resolve() / path.name
+        except Exception:
+            identity = path
+        if identity not in seen:
+            seen.add(identity)
+            unique.append(path)
+    return unique
+
+
+def _dsh_yaml_key_value(raw):
+    value = raw.strip()
+    if value.startswith('"') and value.endswith('"'):
+        try:
+            decoded = json.loads(value)
+            return decoded if isinstance(decoded, str) else None
+        except Exception:
+            return None
+    if value.startswith("'") and value.endswith("'"):
+        return value[1:-1].replace("''", "'")
+    return value
+
+
+def _dsh_entry_bounds(lines):
+    starts = [i for i, line in enumerate(lines) if re.match(r"^-\s*", line)]
+    entries = []
+    for pos, start in enumerate(starts):
+        end = starts[pos + 1] if pos + 1 < len(starts) else len(lines)
+        entries.append((start, end))
+    return entries
+
+
+def _dsh_find_entry(lines, must_exist=True):
+    found = []
+    for start, end in _dsh_entry_bounds(lines):
+        for idx in range(start, end):
+            stripped = lines[idx].strip()
+            if re.match(r"^(?:-\s+)?id:\s*(?:\"llm-pi-ai\"|'llm-pi-ai'|llm-pi-ai)\s*(?:#.*)?$", stripped):
+                found.append((start, end, idx))
+                break
+    if len(found) > 1:
+        raise SystemExit("DSH profile has duplicate llm-pi-ai entries; refusing to rewrite")
+    if not found:
+        if must_exist:
+            return None
+        return None
+    return found[0]
+
+
+def _dsh_provider_location(lines, provider_id):
+    entry = _dsh_find_entry(lines, must_exist=False)
+    if entry is None:
+        return None
+    start, end, id_idx = entry
+    id_indent = 2 if lines[id_idx].lstrip().startswith("- id:") else _line_indent(lines[id_idx])
+    config_indent = id_indent
+    config_idx = next(
+        (
+            i
+            for i in range(id_idx + 1, end)
+            if _meaningful(lines[i])
+            and _line_indent(lines[i]) == config_indent
+            and re.match(r"^config:\s*(?:.*)$", lines[i].strip())
+        ),
+        None,
+    )
+    if config_idx is None:
+        return None
+    providers_indent = config_indent + 2
+    providers_idx = next(
+        (
+            i
+            for i in range(config_idx + 1, end)
+            if _meaningful(lines[i])
+            and _line_indent(lines[i]) == config_indent
+        ),
+        end,
+    )
+    providers_idx_found = next(
+        (
+            i
+            for i in range(config_idx + 1, providers_idx)
+            if _meaningful(lines[i])
+            and _line_indent(lines[i]) == providers_indent
+            and re.match(r"^providers:\s*(.*)$", lines[i].strip())
+        ),
+        None,
+    )
+    if providers_idx_found is None:
+        return None
+    providers_line = lines[providers_idx_found]
+    if providers_line.strip() not in ("providers:", "providers: {}", "providers: null"):
+        raise SystemExit("DSH providers use unsupported flow YAML; edit it in DeepSeek Harness")
+    providers_end = next(
+        (
+            i
+            for i in range(providers_idx_found + 1, end)
+            if _meaningful(lines[i]) and _line_indent(lines[i]) <= providers_indent
+        ),
+        end,
+    )
+    provider_indent = providers_indent + 2
+    block_start = None
+    for idx in range(providers_idx_found + 1, providers_end):
+        if not _meaningful(lines[idx]) or _line_indent(lines[idx]) != provider_indent:
+            continue
+        stripped = lines[idx].strip()
+        if ":" not in stripped:
+            continue
+        key = _dsh_yaml_key_value(stripped.split(":", 1)[0])
+        if key == provider_id:
+            block_start = idx
+            break
+    block_end = None
+    if block_start is not None:
+        block_end = next(
+            (
+                i
+                for i in range(block_start + 1, providers_end)
+                if _meaningful(lines[i]) and _line_indent(lines[i]) <= provider_indent
+            ),
+            providers_end,
+        )
+        block_text = "\n".join(lines[block_start:block_end])
+        if "!!" in block_text or re.search(r"(^|\s)[&*][A-Za-z0-9_]", block_text):
+            raise SystemExit(
+                f"DSH provider '{provider_id}' uses YAML tags, anchors or aliases; "
+                "edit it in DeepSeek Harness"
+            )
+    return {
+        "entry_end": end,
+        "id_idx": id_idx,
+        "id_indent": id_indent,
+        "config_idx": config_idx,
+        "config_indent": config_indent,
+        "providers_idx": providers_idx_found,
+        "providers_indent": providers_indent,
+        "providers_end": providers_end,
+        "provider_indent": provider_indent,
+        "block_start": block_start,
+        "block_end": block_end,
+    }
+
+
+def _dsh_provider_block(text, provider_id):
+    if text is None:
+        return None
+    lines = text.splitlines()
+    loc = _dsh_provider_location(lines, provider_id)
+    if not loc or loc["block_start"] is None:
+        return None
+    return "\n".join(lines[loc["block_start"]:loc["block_end"]]).strip()
+
+
+def _dsh_replace_provider(text, provider_id, native=None):
+    lines = [] if text is None else text.splitlines()
+    entry = _dsh_find_entry(lines, must_exist=False)
+    if entry is None:
+        if native is None:
+            return text or ""
+        new = ["- id: llm-pi-ai", "  config:", "    providers:"] + _render_yaml(
+            {provider_id: native}, 6
+        )
+        prefix = text or ""
+        if prefix and not prefix.endswith("\n"):
+            prefix += "\n"
+        if prefix.strip():
+            prefix += "\n"
+        return prefix + "\n".join(new) + "\n"
+
+    start, end, id_idx = entry
+    id_indent = 2 if lines[id_idx].lstrip().startswith("- id:") else _line_indent(lines[id_idx])
+    config_indent = id_indent
+    providers_indent = config_indent + 2
+    provider_indent = providers_indent + 2
+    rendered = [] if native is None else _render_yaml({provider_id: native}, provider_indent)
+
+    if _dsh_provider_location(lines, provider_id) is None:
+        config_idx = next(
+            (
+                i
+                for i in range(id_idx + 1, end)
+                if _meaningful(lines[i])
+                and _line_indent(lines[i]) == config_indent
+                and re.match(r"^config:\s*(.*)$", lines[i].strip())
+            ),
+            None,
+        )
+        if config_idx is None and native is None:
+            return text or ""
+        inserted = [
+            " " * config_indent + "config:",
+            " " * providers_indent + "providers:",
+        ]
+        if native is not None:
+            inserted += _render_yaml({provider_id: native}, provider_indent)
+        else:
+            inserted[1] = " " * providers_indent + "providers: {}"
+        if config_idx is not None:
+            lines[config_idx:config_idx + 1] = inserted
+        else:
+            lines[id_idx + 1:id_idx + 1] = inserted
+        return "\n".join(lines).rstrip("\n") + "\n"
+
+    loc = _dsh_provider_location(lines, provider_id)
+    providers_line = lines[loc["providers_idx"]]
+    if providers_line.strip() != "providers:":
+        lines[loc["providers_idx"]] = " " * providers_indent + "providers:"
+
+    # Re-locate after converting an inline empty/null providers mapping.
+    loc = _dsh_provider_location(lines, provider_id)
+    if loc is None:
+        # The conversion removed the inline value but no provider existed.
+        lines[loc["providers_idx"]:loc["providers_idx"] + 1] = [
+            " " * providers_indent + "providers:"
+        ]
+        insert_at = loc["providers_idx"] + 1
+        if native is not None:
+            lines[insert_at:insert_at] = _render_yaml({provider_id: native}, provider_indent)
+        return "\n".join(lines).rstrip("\n") + "\n"
+
+    if loc["block_start"] is not None:
+        if native is None:
+            del lines[loc["block_start"]:loc["block_end"]]
+        else:
+            lines[loc["block_start"]:loc["block_end"]] = rendered
+    elif native is not None:
+        insert_at = loc["providers_idx"] + 1
+        lines[insert_at:insert_at] = rendered
+    elif native is None:
+        return text or ""
+
+    loc = _dsh_provider_location(lines, provider_id)
+    remaining = []
+    if loc:
+        for idx in range(loc["providers_idx"] + 1, loc["providers_end"]):
+            if not _meaningful(lines[idx]) or _line_indent(lines[idx]) != loc["provider_indent"]:
+                continue
+            stripped = lines[idx].strip()
+            if ":" in stripped:
+                remaining.append(_dsh_yaml_key_value(stripped.split(":", 1)[0]))
+    if not remaining and loc:
+        keep_comments = [
+            line
+            for line in lines[loc["providers_idx"] + 1:loc["providers_end"]]
+            if line.strip().startswith("#")
+        ]
+        lines[loc["providers_idx"]] = " " * loc["providers_indent"] + "providers: {}"
+        lines[loc["providers_idx"] + 1:loc["providers_end"]] = keep_comments
+
+    return "\n".join(lines).rstrip("\n") + "\n"
+
+
+def _dsh_update_credential_ref(text, reference, api_key=None, remove=False):
+    if remove:
+        api_key = None
+    elif api_key is None:
+        return text or ""
+    lines = [] if text is None else text.splitlines()
+    if not [line for line in lines if _meaningful(line)]:
+        if remove:
+            return text or ""
+        return (
+            "version: 1\n"
+            "refs:\n"
+            f"  {reference}: {json.dumps(api_key, ensure_ascii=False)}\n"
+            "records: {}\n"
+        )
+    version_idx = next(
+        (i for i, line in enumerate(lines) if re.match(r"^version:\s*1\s*(?:#.*)?$", line)),
+        None,
+    )
+    if version_idx is None:
+        raise SystemExit("DSH credentials must use version: 1; refusing to rewrite")
+    refs_idx = next(
+        (i for i, line in enumerate(lines) if re.match(r"^refs:\s*(.*)$", line)),
+        None,
+    )
+    if refs_idx is None:
+        if remove:
+            return "\n".join(lines).rstrip("\n") + "\n"
+        lines[version_idx + 1:version_idx + 1] = [
+            "refs:",
+            f"  {reference}: {json.dumps(api_key, ensure_ascii=False)}",
+        ]
+        return "\n".join(lines).rstrip("\n") + "\n"
+    inline = lines[refs_idx].split(":", 1)[1].strip()
+    if inline not in ("", "{}", "null"):
+        raise SystemExit("DSH credentials refs use unsupported flow YAML; refusing to rewrite")
+    lines[refs_idx] = "refs:"
+    refs_end = next(
+        (
+            i
+            for i in range(refs_idx + 1, len(lines))
+            if _meaningful(lines[i]) and _line_indent(lines[i]) == 0
+        ),
+        len(lines),
+    )
+    key_idx = next(
+        (
+            i
+            for i in range(refs_idx + 1, refs_end)
+            if _meaningful(lines[i])
+            and _line_indent(lines[i]) == 2
+            and ":" in lines[i]
+            and _dsh_yaml_key_value(lines[i].strip().split(":", 1)[0]) == reference
+        ),
+        None,
+    )
+    if remove:
+        if key_idx is not None:
+            del lines[key_idx]
+    else:
+        value_line = f"  {reference}: {json.dumps(api_key, ensure_ascii=False)}"
+        if key_idx is None:
+            lines[refs_idx + 1:refs_idx + 1] = [value_line]
+        else:
+            lines[key_idx] = value_line
+    return "\n".join(lines).rstrip("\n") + "\n"
+
+
+def _dsh_home_shadows_providers(home):
+    path = Path(home) / "cordis.patch.yml"
+    text = _read_optional_text(path)
+    if not text:
+        return False
+    lines = text.splitlines()
+    entry = _dsh_find_entry(lines, must_exist=False)
+    if not entry:
+        return False
+    start, end, id_idx = entry
+    for idx in range(id_idx + 1, end):
+        line = lines[idx]
+        if _meaningful(line) and re.match(r"^\s*config:\s*", line):
+            value = line.split(":", 1)[1].strip()
+            return value not in ("", "{}", "null")
+    return False
+
+
+def _dsh_validate_provider(provider_id, config):
+    if (
+        not provider_id
+        or provider_id == "deepseek-official"
+        or provider_id.startswith("-")
+        or provider_id.endswith("-")
+        or "--" in provider_id
+        or not re.fullmatch(r"[a-z0-9-]+", provider_id)
+    ):
+        raise SystemExit(
+            "DSH provider ids must be lowercase hyphenated identifiers; "
+            "deepseek-official is reserved"
+        )
+    if not isinstance(config, dict):
+        raise SystemExit("DSH provider config must be a JSON object")
+    if config.get("api") not in (
+        "openai-completions", "openai-responses", "anthropic-messages"
+    ):
+        raise SystemExit("DSH api must be openai-completions, openai-responses or anthropic-messages")
+    base_url = config.get("options", {}).get("baseURL")
+    parsed = urlparse(base_url) if isinstance(base_url, str) else None
+    if not parsed or parsed.scheme not in ("http", "https") or not parsed.hostname:
+        raise SystemExit("DSH options.baseURL must be a valid http(s) URL")
+    api_key = config.get("options", {}).get("apiKey")
+    api_key = api_key if isinstance(api_key, str) and api_key.strip() else ""
+    api_key_env = config.get("apiKeyEnv")
+    api_key_env = api_key_env if isinstance(api_key_env, str) and api_key_env else ""
+    if not api_key and not api_key_env:
+        raise SystemExit("DSH requires options.apiKey or an existing apiKeyEnv reference")
+    models = config.get("models")
+    if not isinstance(models, dict) or not models:
+        raise SystemExit("DSH requires at least one model")
+    for model_id, model in models.items():
+        if not isinstance(model_id, str) or not model_id.strip() or not isinstance(model, dict):
+            raise SystemExit("DSH models must map non-empty ids to JSON objects")
+        limit = model.get("limit") or {}
+        for field in ("context", "output"):
+            value = limit.get(field) if isinstance(limit, dict) else None
+            if value is not None and (
+                not isinstance(value, int) or isinstance(value, bool) or value <= 0
+            ):
+                raise SystemExit("DSH model capacities must be positive integers")
+    return api_key, api_key_env
+
+
+def _dsh_native_provider(provider_id, config, credentials_text):
+    api_key, api_key_env = _dsh_validate_provider(provider_id, config)
+    cfg = json.loads(json.dumps(config, ensure_ascii=False))
+    native = cfg
+    for key in ("name", "options", "kind", "enabled", "headers"):
+        native.pop(key, None)
+    native["displayName"] = config.get("name") or provider_id
+    native["baseURL"] = config["options"]["baseURL"]
+    headers = config["options"].get("headers")
+    if isinstance(headers, dict) and headers:
+        native["headers"] = headers
+    reference = api_key_env or (
+        f"CC_SWITCH_DSH_{provider_id.replace('-', '_').upper()}"
+    )
+    if api_key:
+        reference = f"CC_SWITCH_DSH_{provider_id.replace('-', '_').upper()}"
+        credentials_text = _dsh_update_credential_ref(
+            credentials_text, reference, api_key=api_key
+        )
+        native["apiKeyEnv"] = reference
+    elif api_key_env:
+        native["apiKeyEnv"] = api_key_env
+
+    models = []
+    for model_id, source in config["models"].items():
+        model = json.loads(json.dumps(source, ensure_ascii=False))
+        model["id"] = model_id
+        limit = model.pop("limit", None)
+        if isinstance(limit, dict):
+            if "context" in limit:
+                model["contextWindow"] = limit["context"]
+            if "output" in limit:
+                model["maxTokens"] = limit["output"]
+        modalities = model.pop("modalities", None)
+        if isinstance(modalities, dict) and "input" in modalities:
+            model["input"] = modalities["input"]
+        reasoning = model.pop("reasoning", None)
+        if reasoning is False:
+            model["reasoningEfforts"] = False
+        elif reasoning is True and "reasoningEfforts" not in model:
+            model["reasoningEfforts"] = {
+                "off": None, "low": "low", "medium": "medium", "high": "high"
+            }
+        models.append(model)
+    native["models"] = models
+    return native, credentials_text
+
+
+def _dsh_db_upsert(con, provider_id, config):
+    name = config.get("name") or provider_id
+    row = con.execute(
+        "SELECT id FROM providers WHERE id=? AND app_type='dsh'", (provider_id,)
+    ).fetchone()
+    payload = json.dumps(config, ensure_ascii=False)
+    if row:
+        con.execute(
+            "UPDATE providers SET name=?, settings_config=? WHERE id=? AND app_type='dsh'",
+            (name, payload, provider_id),
+        )
+    else:
+        con.execute(
+            "INSERT INTO providers (id, app_type, name, settings_config) VALUES (?,?,?,?)",
+            (provider_id, "dsh", name, payload),
+        )
+
+
+def _dsh_restore_files(originals):
+    for path, old_text in originals.items():
+        try:
+            if old_text is None:
+                path.unlink(missing_ok=True)
+            else:
+                _atomic_write_text(
+                    path, old_text, private=(path.name == ".credentials.yaml")
+                )
+        except Exception:
+            pass
+
+
+def _dsh_apply_file_set(args, db_path, writes, db_change):
+    if not getattr(args, "apply", False):
+        for path in writes:
+            print(f"[DRY-RUN] would update {path}")
+        return
+    cc_home = resolve_paths(args)[0]
+    backup_db(cc_home, db_path, "dsh-provider")
+    originals = {path: _read_optional_text(path) for path in writes}
+    con = connect(db_path)
+    try:
+        db_change(con)
+        for path, text in writes.items():
+            _atomic_write_text(path, text, private=(path.name == ".credentials.yaml"))
+        con.commit()
+    except Exception:
+        con.rollback()
+        _dsh_restore_files(originals)
+        raise
+    finally:
+        con.close()
 
 
 def cmd_provider_block(args):
@@ -658,6 +1291,150 @@ def cmd_provider_set_key(args):
     con.close()
 
 
+def _require_dsh_schema(db_path):
+    if not schema_at_least(db_path, 24):
+        raise SystemExit("DeepSeek Harness support requires CC Switch 4.0.22+ (schema v24)")
+    con = connect(db_path)
+    try:
+        if "enabled_dsh" not in table_columns(con, "mcp_servers"):
+            raise SystemExit("DeepSeek Harness support requires schema v24 (enabled_dsh)")
+    finally:
+        con.close()
+
+
+def cmd_dsh_provider_get(args):
+    _, db_path = resolve_paths(args)
+    _require_dsh_schema(db_path)
+    con = connect(db_path)
+    try:
+        row = con.execute(
+            "SELECT settings_config FROM providers WHERE id=? AND app_type='dsh'",
+            (args.provider_id,),
+        ).fetchone()
+    finally:
+        con.close()
+    if not row:
+        raise SystemExit(f"DSH provider not found: {args.provider_id}")
+    try:
+        config = json.loads(row["settings_config"])
+    except Exception as exc:
+        raise SystemExit(f"DSH provider database JSON is invalid: {exc}")
+    print(json.dumps(config, ensure_ascii=False, indent=2))
+
+
+def cmd_dsh_provider_set(args):
+    cc_home, db_path = resolve_paths(args)
+    run_preflight(args, cc_home, db_path)
+    _require_dsh_schema(db_path)
+    home = dsh_home(args)
+    if _dsh_home_shadows_providers(home):
+        raise SystemExit(
+            f"DSH providers are shadowed by llm-pi-ai config in {home / 'cordis.patch.yml'}; "
+            "remove that home-level config first"
+        )
+    raw = read_text(args.config_file) if args.config_file else args.config
+    try:
+        config = json.loads(raw)
+    except Exception as exc:
+        raise SystemExit(f"invalid DSH provider JSON: {exc}")
+    # Read credentials once and carry the reference update through all profiles.
+    credentials_text = _read_optional_text(home / ".credentials.yaml")
+    native, credentials_text = _dsh_native_provider(
+        args.provider_id, config, credentials_text
+    )
+    profiles = dsh_profile_paths(home)
+    blocks = {
+        path: _dsh_provider_block(_read_optional_text(path), args.provider_id)
+        for path in profiles
+    }
+    distinct = {block for block in blocks.values() if block is not None}
+    if len(distinct) > 1:
+        raise SystemExit(
+            "DSH profile copies of this provider differ; edit or repair them in DeepSeek Harness first"
+        )
+    writes = {
+        path: _dsh_replace_provider(_read_optional_text(path), args.provider_id, native)
+        for path in profiles
+    }
+    for path in profiles:
+        if _dsh_provider_block(writes[path], args.provider_id) is None:
+            raise SystemExit(f"DSH provider projection verification failed for {path}")
+    if credentials_text is not None:
+        writes[home / ".credentials.yaml"] = credentials_text
+    if not args.apply:
+        print(f"[DRY-RUN] would upsert DSH provider {args.provider_id}")
+        _dsh_apply_file_set(
+            args, db_path, writes,
+            lambda con: _dsh_db_upsert(con, args.provider_id, config),
+        )
+        return
+    _dsh_apply_file_set(
+        args, db_path, writes,
+        lambda con: _dsh_db_upsert(con, args.provider_id, config),
+    )
+    for path in profiles:
+        if _dsh_provider_block(_read_optional_text(path), args.provider_id) is None:
+            raise SystemExit(f"DSH provider verification failed in {path}")
+    print(
+        f"[UPSERTED] dsh provider {args.provider_id}: "
+        f"{len(profiles)} profile(s) + credentials + database"
+    )
+
+
+def cmd_dsh_provider_remove(args):
+    cc_home, db_path = resolve_paths(args)
+    run_preflight(args, cc_home, db_path)
+    _require_dsh_schema(db_path)
+    home = dsh_home(args)
+    profiles = dsh_profile_paths(home)
+    originals = {path: _read_optional_text(path) for path in profiles}
+    blocks = {
+        path: _dsh_provider_block(text, args.provider_id)
+        for path, text in originals.items()
+    }
+    distinct = {block for block in blocks.values() if block is not None}
+    if len(distinct) > 1:
+        raise SystemExit(
+            "DSH profile copies of this provider differ; edit or repair them in DeepSeek Harness first"
+        )
+    credentials_path = home / ".credentials.yaml"
+    credentials_text = _read_optional_text(credentials_path)
+    reference = f"CC_SWITCH_DSH_{args.provider_id.replace('-', '_').upper()}"
+    credentials_text = _dsh_update_credential_ref(
+        credentials_text, reference, remove=True
+    )
+    writes = {
+        path: _dsh_replace_provider(text, args.provider_id, None)
+        for path, text in originals.items()
+    }
+    for path in profiles:
+        if _dsh_provider_block(writes[path], args.provider_id) is not None:
+            raise SystemExit(f"DSH provider removal projection failed for {path}")
+    if credentials_text is not None:
+        writes[credentials_path] = credentials_text
+    if not args.apply:
+        print(f"[DRY-RUN] would remove DSH provider {args.provider_id}")
+        _dsh_apply_file_set(
+            args, db_path, writes,
+            lambda con: con.execute(
+                "DELETE FROM providers WHERE id=? AND app_type='dsh'",
+                (args.provider_id,),
+            ),
+        )
+        return
+    _dsh_apply_file_set(
+        args, db_path, writes,
+        lambda con: con.execute(
+            "DELETE FROM providers WHERE id=? AND app_type='dsh'",
+            (args.provider_id,),
+        ),
+    )
+    for path in profiles:
+        if _dsh_provider_block(_read_optional_text(path), args.provider_id) is not None:
+            raise SystemExit(f"DSH provider removal verification failed in {path}")
+    print(f"[REMOVED] dsh provider {args.provider_id} from profiles, credentials and database")
+
+
 def cmd_set_flags(args):
     updates = {}
     for app, col in FLAG_COLUMNS:
@@ -671,12 +1448,20 @@ def cmd_set_flags(args):
     con = connect(db_path)
     cur = con.cursor()
     cols = table_columns(con, args.table)
+    if args.table == "skills":
+        for app in ("pi", "omp"):
+            if getattr(args, app, None) is not None:
+                raise SystemExit(
+                    f"{app} skills are enabled by existence in their native skills directory; "
+                    "there is no database flag to toggle"
+                )
     missing = [col for col in updates if col not in cols]
     if missing:
         raise SystemExit(
             f"{args.table}: column(s) not present in this CCS schema: {', '.join(missing)}; "
             "upgrade CC Switch (enabled_pi needs 4.0+, enabled_agy needs 4.0.18+, "
-            "enabled_kimi needs 4.0.19+, enabled_mcode needs 3.20.4+)"
+            "enabled_kimi needs 4.0.19+, enabled_omp needs 4.0.20+, "
+            "enabled_dsh needs 4.0.22+, enabled_mcode needs 3.20.4+)"
         )
     row = cur.execute(f"SELECT name FROM {args.table} WHERE name=?", (args.name,)).fetchone()
     if not row:
@@ -813,7 +1598,7 @@ def cmd_doctor(args):
         availability = " ".join(
             (
                 f"{app}=existence"
-                if table == "skills" and app == "pi"
+                if table == "skills" and app in ("pi", "omp")
                 else f"{app}={'yes' if col in cols else 'no'}"
             )
             for app, col in FLAG_COLUMNS
@@ -1121,20 +1906,27 @@ def mcp_semantic_issues(text):
     return issues
 
 
+CODEX_INVALID_MCP_KEYS = {"type", "timeout", "autoApprove"}
+
+
 def codex_mcp_type_issues(text):
-    """Codex 0.158+ rejects a `type` key inside `[mcp_servers.*]`. CCS 4.0 no
-    longer writes it, so a surviving line marks pre-4.0 damage (the author's
-    fix note says to re-sync the entry: toggle it off/on in the MCP panel)."""
+    """Report keys that Codex rejects inside `[mcp_servers.*]`.
+
+    `type` comes from the pre-4.0 writer; CCS 4.0.21 also stopped copying the
+    client-specific `timeout` and `autoApprove` fields into Codex MCP entries.
+    """
     issues = []
     for header, path, i, body in parse_sections(text):
         if not path or path[0] != "mcp_servers" or len(path) != 2:
             continue
         for offset, line in enumerate(body):
             s = line.strip()
-            if s and not s.startswith("#") and "=" in s and s.partition("=")[0].strip() == "type":
+            key = s.partition("=")[0].strip() if s and not s.startswith("#") and "=" in s else ""
+            if key in CODEX_INVALID_MCP_KEYS:
                 issues.append(
-                    f"{header} (line {i + 1 + offset}): `type` is rejected by Codex 0.158+ "
-                    "(CCS 4.0 no longer writes it) — re-sync the entry (MCP panel off/on) or run "
+                    f"{header} (line {i + 1 + offset}): `{key}` is rejected by Codex "
+                    "(CCS 4.0.21 no longer writes the client-only MCP fields) — re-sync the "
+                    "entry (MCP panel off/on) or run "
                     "'repair --mode mcp-type'"
                 )
     return issues
@@ -1585,9 +2377,11 @@ def _insert_inline_provider_member(body, provider_id, table_lines):
 
 
 def repair_mcp_type(text):
-    """Strip `type = ...` lines from `[mcp_servers.<name>]` sections (Codex
-    0.158+ rejects the key; CCS 4.0 no longer writes it). Sub-tables such as
-    `[mcp_servers.<name>.env]` are left untouched."""
+    """Strip Codex-invalid keys from `[mcp_servers.<name>]` sections.
+
+    This covers `type`, `timeout` and `autoApprove`. Sub-tables such as
+    `[mcp_servers.<name>.env]` are left untouched.
+    """
     sections = parse_sections(text)
     removed = []
     changed = False
@@ -1597,7 +2391,8 @@ def repair_mcp_type(text):
             new_body = []
             for line in body:
                 s = line.strip()
-                if s and not s.startswith("#") and "=" in s and s.partition("=")[0].strip() == "type":
+                key = s.partition("=")[0].strip() if s and not s.startswith("#") and "=" in s else ""
+                if key in CODEX_INVALID_MCP_KEYS:
                     changed = True
                     removed.append(f"{header}: {s}")
                     continue
@@ -1607,7 +2402,9 @@ def repair_mcp_type(text):
             out.append([header, path, i, body])
     if not changed:
         return text, []
-    return _join_sections(out), [f"removed {len(removed)} type line(s): " + "; ".join(removed[:10])]
+    return _join_sections(out), [
+        f"removed {len(removed)} Codex-invalid MCP key line(s): " + "; ".join(removed[:10])
+    ]
 
 
 def repair_codex_0149(text, provider_type=None):
@@ -2497,7 +3294,7 @@ def build_parser():
         for flag in (
             "enable_codex", "enable_claude", "enable_gemini", "enable_opencode",
             "enable_hermes", "enable_grokbuild", "enable_mcode", "enable_pi",
-            "enable_agy", "enable_kimi",
+            "enable_agy", "enable_kimi", "enable_omp", "enable_dsh",
         ):
             sp.add_argument(f"--{flag.replace('_', '-')}", dest=flag, action="store_true", default=False)
 
@@ -2555,12 +3352,37 @@ def build_parser():
     pk.add_argument("--remove", action="store_true", help="remove the key instead of setting it")
     pk.set_defaults(func=cmd_provider_set_key)
 
+    dg = sub.add_parser("dsh-provider-get", help="read one DeepSeek Harness provider as JSON")
+    dg.add_argument("--provider-id", required=True)
+    dg.add_argument("--dsh-home")
+    dg.set_defaults(func=cmd_dsh_provider_get)
+
+    ds = sub.add_parser(
+        "dsh-provider-set",
+        help="upsert one DSH provider across profiles, credentials and the database",
+    )
+    ds.add_argument("--provider-id", required=True)
+    ds.add_argument("--config")
+    ds.add_argument("--config-file")
+    ds.add_argument("--dsh-home")
+    ds.add_argument("--apply", action="store_true", help="write changes (with automatic DB backup)")
+    ds.set_defaults(func=cmd_dsh_provider_set)
+
+    dr = sub.add_parser(
+        "dsh-provider-remove",
+        help="remove one DSH provider from profiles, credentials and the database",
+    )
+    dr.add_argument("--provider-id", required=True)
+    dr.add_argument("--dsh-home")
+    dr.add_argument("--apply", action="store_true", help="write changes (with automatic DB backup)")
+    dr.set_defaults(func=cmd_dsh_provider_remove)
+
     f = sub.add_parser("set-flags", description="Toggle enabled_* flags for an existing mcp_servers/skills row without touching other fields")
     f.add_argument("--table", required=True, choices=("mcp_servers", "skills"))
     f.add_argument("--name", required=True)
     for key in (
         "codex", "claude", "gemini", "opencode", "hermes", "grokbuild", "mcode", "pi",
-        "agy", "kimi",
+        "agy", "kimi", "omp", "dsh",
     ):
         f.add_argument(f"--{key}", type=int, choices=(0, 1), default=None, help="1 = enable, 0 = disable")
     f.set_defaults(func=cmd_set_flags)
@@ -2591,7 +3413,7 @@ def build_parser():
         choices=("header-order", "live-only", "both", "codex-0149", "codex-key", "mcp-type"),
         default="both",
         help="codex-key restores auth.OPENAI_API_KEY (provider target only); mcp-type strips "
-             "`type` lines that Codex 0.158+ rejects",
+             "type/timeout/autoApprove lines that Codex rejects",
     )
     rp.add_argument("--apply", action="store_true", help="write changes (with automatic backup)")
     rp.add_argument("--provider-id")

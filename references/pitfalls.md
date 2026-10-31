@@ -50,16 +50,21 @@
 | 3.20.4 升级后部分预设/端点/计价与预期不同 | AICodeWith 的 Codex 端点改为 `/v1`（存量卡是创建时快照）；DeepSeek V4 Pro 撤回调价、回到高峰档；`Ling-2.6-1T` 转纯文本 | 存量 AICodeWith 卡手动改端点或重新导入预设；其余是官方行为，无需本机操作 |
 | MiniMax Code（mcode）提示词写入失败 / CCS 找不到数据目录 | 提示词按 UTF-8 字节限 32 KiB；数据目录只认 `MINIMAX_DATA_DIR`/`MAVIS_DATA_DIR` 环境变量（都没有时用 `~/.minimax`） | 用 `prompt-set --app-type mcode`（本技能会先校验 32 KiB）；自定义目录时启动 CCS 也要带同一个环境变量；删除被 `defaultModel` 引用的供应商前先在 MiniMax Code 里换默认模型 |
 | CCS 4.0 里 `common-config` 改了没效果 | 4.0 移除了“通用配置片段”：DB 里的 `common_config_*` 与 `providers.meta.common_config_enabled` 只是升级遗留 | 本技能在 schema v20 上会拒绝所有 `common-config` 命令；共享键写进客户端 live 配置（如 `~/.codex/config.toml`），供应商专属字段写卡片（`provider-block` / `provider-set-key` / `provider-env`） |
-| Codex 0.158+ 因 MCP `type` 字段报错/起不来 | 旧版 CCS/手动配置把 `type = "stdio"` 写进了 `[mcp_servers.*]`；4.0 写入时会剥离，但 live 里可能残留旧值 | 先看 `check --strict`（live config 会被审计）；`repair --target config.toml --mode mcp-type [--apply]` 或面板关/开重写；不要在 Codex 的 provider config / live config 里手写 `type` |
+| Codex 因 MCP `type` / `timeout` / `autoApprove` 报错 | 旧版 CCS 或手动配置把其他客户端的字段写进 `[mcp_servers.*]`；4.0.21 起写入时会剥离，但 live 里可能残留旧值 | `check --strict`；`repair --target config.toml --mode mcp-type [--apply]` 或面板关/开重写；不要手写这三项 |
 | Codex 聚合模式下子 agent 读不到任务 | 新版子 agent 工具把任务加密给主 agent 的供应商，跨供应商解不开 | 在聚合设置里打开「聚合模式下子 agent 用经典工具」（`settings.json: codexStackClassicTools`，4.0.13 起默认 true），改完重启 Codex；代价是没有 `followup_task` 等新工具 |
 | Windows 更新 CCS 后，隐藏应用、配置目录覆盖等设置回到默认值 | 4.0.15 之前 `settings.json` 直接覆盖写；新内容更短时旧尾部残留，随后整份解析失败并回落默认值 | 升级 4.0.15+；若首启出现 `settings.json.broken-<time>.bak`，从备份核对并重设；已丢失的旧设置不会自动找回 |
 | Claude Desktop 切换直连/路由/聚合后没有变化 | Desktop 只在启动时读取配置 | 完全退出并重启 Claude Desktop；路由/聚合模式还需保持 CC Switch 运行 |
-| 升级 4.0.18 / 4.0.19 后旧版 CCS 打不开数据库 | 4.0.18 将 schema 升到 v21 并加入 `enabled_agy`；4.0.19 升到 v22 并加入 `enabled_kimi` | 升级前保留自动备份；降级必须恢复迁移前数据库，不能用旧版直接打开 v21/v22 |
+| 升级 4.0.18–4.0.22 后旧版 CCS 打不开数据库 | v21 加 `enabled_agy`，v22 加 `enabled_kimi`，v23 加 MCP `enabled_omp`，v24 加 MCP/Skills `enabled_dsh` 与 `parser_state` | 升级前保留自动备份；降级必须恢复迁移前数据库，不能用旧版直接打开新版库 |
 | Kimi Code 的 MCP/Skills 已在面板勾选但原生文件没有 | 技能只改 DB 标志，CCS 负责投影到 `~/.kimi-code`；也可能 `KIMI_CODE_HOME` 指向了另一目录 | 重启 CCS 触发同步；确认启动 CCS 的 `KIMI_CODE_HOME` 与 Kimi 实际使用目录一致 |
 | 直接运行 agy 没有使用 CCS 里的第三方供应商 | Agy 卡片是启动时注入，只对“使用此供应商打开终端”启动的进程生效；直接运行 agy 仍是官方 Google 登录 | 从对应卡片打开终端；不要试图用 provider-* 改全局 agy |
 | Agy 的 MCP 勾选后报 SSE 不支持 | Agy 只支持 stdio 和流式 HTTP | 改用 HTTP 或 `npx -y mcp-remote <url> --transport sse-only` 桥接为 stdio；不要手改共享目录绕过校验 |
 | 修改 Agy 定制后 Antigravity IDE 也受影响 | CLI、桌面版和 IDE 可能共用 `~/.gemini/config` | 操作前明确要影响哪个应用；只改指定用户所需的 MCP/Skills/Prompt，并在重启 IDE/agy 后复核 |
 | Kimi 多供应商中某些卡不能删除 | 默认模型或子代理仍引用该供应商 | 先在 Kimi Code 里把默认模型/子代理换掉，再从 CCS 移除；官方多账号由授权中心管理 |
+| OMP 技能面板显示“启用”但数据库没有 `enabled_omp` | OMP 与 Pi 一样按原生技能目录存在与否判定 | 用 CCS/技能同步创建原生目录；不要试图给 `skills` 增加不存在的 DB 列 |
+| OMP 的 `models.yml` 保存失败 | 文件含 anchors、tags、flow YAML 或其他无法安全重写的语法 | 在 CCS 原生供应商编辑器或 OMP 中手改；通用 `provider-*` 命令会拒绝 |
+| DSH 的 Web/Desktop 供应商副本不一致 | 两份 `cordis.patch.yml` 被手动改成了不同内容 | `dsh-provider-set/remove` 会拒绝避免覆盖；先在 DSH/CCS 修复副本一致性 |
+| DSH 的 home patch 覆盖供应商 | `$DSH_HOME/cordis.patch.yml` 里有 `llm-pi-ai` 非空 config，会覆盖每个 profile | 先从 home patch 移除该配置，再使用 `dsh-provider-set` |
+| DSH profile 使用 `!!js`、anchors 或 aliases | DSH 会动态执行/复用 YAML 值，Python 文本写入无法保证语义 | 工具会拒绝；在 `cordis.patch.yml` 原生编辑器里处理 |
 | 打开「压缩 Codex 历史会话」后别的工具读不到会话 | 7 天以上会话被压成 `.jsonl.zst`，直接读 raw `.jsonl` 的工具看不到 | 属于预期行为：压缩会话在 CCS 里照常可读，Codex 继续时会自动解压；需要被第三方读取时不要开该开关 |
 | 升级 4.0 后旧触发的问题还在 | 部分修复（Codex 模型目录、会话分组、MCP `type`）要等 CCS 下一次写入才生效 | 升级后切换一次供应商；已有 MCP 配置重新同步一次；时间 MCP 预设改为 `uvx mcp-server-time`（存量需手改） |
 | 4.0 里找不到设置项 | 4.0 移除了供应商成本倍率、连通性检查高级设置、Claude 的 Teammates 与最大强度 | 已写入配置的环境变量不会被自动删除；需要时用官方端点的默认值或在会话里用 `/effort max` |

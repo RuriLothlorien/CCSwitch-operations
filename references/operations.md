@@ -79,7 +79,7 @@ python "$S" mcp-upsert --name dashscope-websearch \
 python $S prompt-set --app-type codex --content-file prompts_codex.txt
 ```
 
-`--app-type` 支持 12 个应用：`codex` / `claude` / `claude-desktop` / `gemini` / `grokbuild` / `opencode` / `openclaw` / `hermes` / `pi` / `mcode` / `kimi` / `agy`（`mcode` = MiniMax Code，提示词单条 ≤32 KiB；Kimi/Agy/mcode 的供应商编辑请走 CCS 界面）。
+`--app-type` 支持 14 个应用：`codex` / `claude` / `claude-desktop` / `gemini` / `grokbuild` / `opencode` / `openclaw` / `hermes` / `pi` / `mcode` / `kimi` / `agy` / `omp` / `dsh`（Kimi/OMP/Agy/mcode 的供应商编辑走 CCS 界面；DSH 使用专用命令）。
 
 ### skill 注册
 
@@ -97,7 +97,7 @@ python $S provider-block --section "[mcp_servers.foo]" --block-file block.toml `
 python $S provider-block --section "[mcp_servers.foo]" --block-file block.toml --replace
 ```
 
-供应商 ID 解析顺序：`--provider-id` → `settings.json` 的 `currentProvider*` → `providers.is_current=1`；解析失败会明确报错。`provider-block` 只适用于有 `config` TOML 文本的供应商（如 codex/gemini）；claude/claude-desktop 用 `provider-env`。Kimi 的结构化 `{provider, models}`、Agy 的启动终端卡和 mcode 的 YAML 供应商会明确拒绝，必须走 CCS 界面。
+供应商 ID 解析顺序：`--provider-id` → `settings.json` 的 `currentProvider*` → `providers.is_current=1`；解析失败会明确报错。`provider-block` 只适用于有 `config` TOML 文本的供应商（如 codex/gemini）；claude/claude-desktop 用 `provider-env`。Kimi 的 `{provider, models}`、OMP/mcode 的 YAML、Agy 的启动终端卡会明确拒绝并提示 UI；DSH 必须使用 `dsh-provider-*`。
 
 ### 供应商环境变量
 
@@ -123,7 +123,7 @@ python $S set-flags --table mcp_servers --name my-server --claude 1 --codex 1
 python $S set-flags --table skills --name my-skill --claude 0
 ```
 
-支持的开关：`--codex` `--claude` `--gemini` `--opencode` `--hermes` `--grokbuild` `--mcode`（3.20.4+）`--pi`（仅 `mcp_servers`，CCS 4.0+）`--agy`（CCS 4.0.18+）`--kimi`（CCS 4.0.19+）。`mcp-upsert` / `skill-upsert` 的 `--enable-*` 是全量标志集，单个开关请用 `set-flags`。
+支持的开关：`--codex` `--claude` `--gemini` `--opencode` `--hermes` `--grokbuild` `--mcode`（3.20.4+）`--pi`（MCP，4.0+）`--agy`（4.0.18+）`--kimi`（4.0.19+）`--omp`（MCP，4.0.20+）`--dsh`（MCP/Skills，4.0.22+）。Pi/OMP 的 Skills 都按存在判定，没有数据库开关。
 
 ## 安装技能到各应用（复制/链接）
 
@@ -159,7 +159,7 @@ DASHSCOPE_AUTH = "Bearer <key>"
 {"command":"npx","args":["-y","mcp-remote","https://example.com/WebSearch/mcp","--header","Authorization:${DASHSCOPE_AUTH}","--transport","http-first"],"type":"stdio","env":{"DASHSCOPE_AUTH":"Bearer <key>"}}
 ```
 
-> 面板 JSON 里的 `type` 由 CCS 按应用翻译；**Codex 0.158+ 不接受 `[mcp_servers.*]` 里的 `type`**（CCS 4.0 写入时会剥离）。手写 Codex 的 provider config / live config 时不要带 `type`，live 里残留旧值用 `repair --mode mcp-type` 清理。
+> 面板 JSON 里的 `type` 由 CCS 按应用翻译；**Codex 不接受 `[mcp_servers.*]` 里的 `type`、`timeout`、`autoApprove`**（4.0.21 起写入时剥离客户端专用字段）。手写 Codex provider/live config 时不要带这三项，旧值用 `repair --mode mcp-type` 清理。
 
 codex provider 的 `settings_config.config` 文本：追加与 config.toml 相同的 TOML 块。
 
@@ -271,21 +271,47 @@ python scripts/ccs_db.py set-flags --table mcp_servers --name my-server --agy 1
 
 边界：MCP/Skills/Prompt 都写 `~/.gemini/config`（MCP 为 `mcp_config.json`、Prompt 为 `AGENTS.md`），该目录可能和 Antigravity IDE 共用。MCP 支持 stdio 和流式 HTTP，**不支持 SSE**。供应商卡只对 CCS 卡片“使用此供应商打开终端”启动的 agy 生效；直接运行 agy 仍使用官方 Google 登录，因此 provider-* 命令会拒绝 Agy。
 
-### CC Switch 4.0.19 升级后复核
+### Oh My Pi（omp，4.0.20+）
 
 ```bash
-python scripts/ccs_db.py doctor                                    # schema v22 + 12 应用 + 标志列 + 模式/安全告警
-python scripts/ccs_db.py check --strict
-python scripts/ccs_db.py doctor --audit
-python scripts/ccs_db.py repair --target config.toml --mode mcp-type    # dry-run：清 live 里的 MCP `type`
+python scripts/ccs_db.py prompt-set --app-type omp --content-file omp-prompt.txt
+python scripts/ccs_db.py mcp-upsert --name my-server --config-file server_config.json --enable-omp
+python scripts/ccs_db.py skill-upsert --name my-skill --enable-omp  # 提示存在即启用
+python scripts/ccs_db.py set-flags --table mcp_servers --name my-server --omp 1
 ```
 
-要点：4.0.16–4.0.17 为 schema v20，4.0.18 升到 v21（`enabled_agy`），4.0.19 升到 v22（`enabled_kimi`）；运行过 4.0.19 后旧版 CCS 会拒绝打开。Codex 模型目录/会话分组的修复要切换一次供应商才生效；已有 MCP 配置重新同步一次清掉旧 `type`；时间 MCP 预设改用 `uvx mcp-server-time`；`common-config` 已移除（见下方“通用配置维护”）。Claude Desktop 从 4.0.13 起支持直连/路由/聚合，切换后重启 Desktop；跨供应商 Codex 子代理开关是 `codexStackClassicTools`。`doctor` 警告 `preserveCodexOfficialAuthOnSwitch` 未开启时，若使用依赖 `auth.json` 的 Codex 构建，应在 CCS 设置中打开；4.0.16 起正常路由的登录保留已改善，但真正的第三方直切仍受该设置影响。
+边界：agent 目录可通过命名 profile、`PI_CONFIG_DIR`、`PI_CODING_AGENT_DIR` 或 CCS 设置改变；MCP 写 `mcp.json`，Skills/Prompt 位于同一 agent 目录。OMP 可能发现项目和外部技能/MCP，原生数量可高于 CCS 列表。供应商 `models.yml` 可能使用 YAML profile、anchors/tags，通用 provider-* 命令会拒绝。
+
+### DeepSeek Harness（dsh，4.0.22+）
+
+```bash
+python scripts/ccs_db.py dsh-provider-get --provider-id <id>
+python scripts/ccs_db.py dsh-provider-set --provider-id <id> --config-file dsh-provider.json
+python scripts/ccs_db.py dsh-provider-set --provider-id <id> --config-file dsh-provider.json --apply
+python scripts/ccs_db.py dsh-provider-remove --provider-id <id> --apply
+python scripts/ccs_db.py mcp-upsert --name my-server --config-file server_config.json --enable-dsh
+python scripts/ccs_db.py skill-upsert --name my-skill --enable-dsh
+```
+
+`dsh-provider-set` 的 JSON 使用 CCS 编辑器形态：`name`、`api`（`openai-completions` / `openai-responses` / `anthropic-messages`）、`options.baseURL`、`options.apiKey`/`apiKeyEnv`、`models`。命令会拒绝 profile 副本不一致、flow YAML、anchors/tags，并以事务方式更新 web/desktop 与已存在的 headless/acp `cordis.patch.yml`、`.credentials.yaml` 和 DB 行。`DSH_HOME` 可覆盖 `~/.dsh`。
+
+可直接从 `references/examples/dsh-provider.json` 复制模板；示例中不含真实凭据。
+
+### CC Switch 4.0.23 升级后复核
+
+```bash
+python scripts/ccs_db.py doctor                                    # schema v24 + 14 应用 + 标志列 + 模式/安全告警
+python scripts/ccs_db.py check --strict
+python scripts/ccs_db.py doctor --audit
+python scripts/ccs_db.py repair --target config.toml --mode mcp-type    # dry-run：清 type/timeout/autoApprove
+```
+
+要点：4.0.20 升 v23（`enabled_omp`），4.0.22 升 v24（`enabled_dsh` + `parser_state`）；运行过 4.0.22 后旧版 CCS 会拒绝打开。Codex MCP 旧 live 配置可用 `repair --mode mcp-type` 清理 `type`、`timeout`、`autoApprove`。Codex 模型目录/会话分组的修复要切换一次供应商才生效；`common-config` 已移除。Claude Desktop 从 4.0.13 起支持直连/路由/聚合；跨供应商 Codex 子代理开关是 `codexStackClassicTools`。`doctor` 警告 `preserveCodexOfficialAuthOnSwitch` 未开启时，若使用依赖 `auth.json` 的 Codex 构建，应在 CCS 设置中打开。
 
 ### MCP `type` 与 Pi 同步（4.0）
 
 ```bash
-# Codex 0.158+ 不接受 [mcp_servers.*] 里的 type；live config 里若残留，直接清掉
+# Codex 不接受 [mcp_servers.*] 里的 type/timeout/autoApprove；旧 live 值直接清掉
 python scripts/ccs_db.py repair --target config.toml --mode mcp-type
 python scripts/ccs_db.py repair --target provider --provider-id <id> --mode mcp-type --apply
 
@@ -293,9 +319,9 @@ python scripts/ccs_db.py repair --target provider --provider-id <id> --mode mcp-
 python scripts/ccs_db.py mcp-upsert --name <name> --config-file server_config.json --enable-pi
 python scripts/ccs_db.py set-flags --table mcp_servers --name <name> --pi 1
 
-# Kimi Code（4.0.19+）与 Antigravity（4.0.18+）
-python scripts/ccs_db.py mcp-upsert --name <name> --config-file server_config.json --enable-kimi --enable-agy
-python scripts/ccs_db.py set-flags --table mcp_servers --name <name> --kimi 1 --agy 1
+# Kimi / Antigravity / Oh My Pi / DeepSeek Harness
+python scripts/ccs_db.py mcp-upsert --name <name> --config-file server_config.json --enable-kimi --enable-agy --enable-omp --enable-dsh
+python scripts/ccs_db.py set-flags --table mcp_servers --name <name> --kimi 1 --agy 1 --omp 1 --dsh 1
 ```
 
 ### CC Switch 3.20.4 升级后复核（历史）
