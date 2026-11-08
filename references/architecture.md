@@ -1,6 +1,6 @@
 # CC Switch 架构速查
 
-## 数据库 `<cc-home>/cc-switch.db`（CCS 4.0.22–4.0.23 = schema v24；4.0.20–4.0.21 = v23；4.0.19 = v22；4.0.18 = v21；4.0.16–4.0.17 = v20；CCS 3.20.4 = v19；3.20.1–3.20.3 = v18；3.20.0 = v17）
+## 数据库 `<cc-home>/cc-switch.db`（CCS 4.0.22–4.0.27 = schema v24；4.0.20–4.0.21 = v23；4.0.19 = v22；4.0.18 = v21；4.0.16–4.0.17 = v20；CCS 3.20.4 = v19；3.20.1–3.20.3 = v18；3.20.0 = v17）
 
 `cc-home` 解析顺序：`CC_SWITCH_HOME` 环境变量 → `~/.cc-switch`。
 
@@ -23,17 +23,18 @@
 - `currentProviderCodex` / `currentProviderClaude` / `currentProviderClaudeDesktop`（启用 Gemini 后还有 `currentProviderGemini`）——`ccs_db.py` 从这里 + `providers.is_current` 动态解析供应商 ID。
 - `skillSyncMethod`: `auto`（默认，优先 symlink、失败回退 copy）/ `symlink` / `copy`；`skillStorageLocation`: `cc_switch`（默认，源在 `<cc-home>/skills`）/ `unified`。
 - 其他：`visibleApps`、`enableLocalProxy`、`enableFailoverToggle`、`preserveCodexOfficialAuthOnSwitch`、`unifyCodexSessionHistory`、`codexStackClassicTools`、`enableClaudePluginIntegration`、`preferredTerminal` 等。4.0.15 会在读取到截断/BOM/尾部损坏时先备份 `settings.json.broken-<time>.bak`，再尽力保留可解析字段；`doctor` 对无法解析的文件给出告警。
+- `dshConfigDir`：DeepSeek Harness 主目录覆盖（4.0.26+，也可填 WSL/UNC 路径）。解析顺序是 CCS 设置 → `DSH_HOME` → `~/.dsh`；本技能的 `--dsh-home` 是对全部三者的显式覆盖。
 
 ## 生效链路
 
 - **Codex config.toml** ← CCS 从当前 codex provider 的 `settings_config.config` 文本生成。直接改 config.toml 后，必须同步改 provider 的 config 文本，否则 CCS 下次切换供应商会回写覆盖。
 - **Claude Code settings.json** ← claude provider 的 `settings_config.env`；共享设置直接保存在 live `settings.json`，4.0 已不再从 `common_config_claude` 合并。
 - **Kimi Code**：数据目录是 `KIMI_CODE_HOME` 或 `~/.kimi-code`；供应商和模型都在 `config.toml`，DB 卡片保存结构化 `{provider, models}`。MCP → `mcp.json`，Skills → `skills/`，Prompt → `AGENTS.md`。供应商为累加模式，不走本地代理或聚合。
-- **Antigravity CLI**：共享定制目录是 `~/.gemini/config`（MCP `mcp_config.json`、Skills `skills/`、Prompt `AGENTS.md`）。供应商卡不改用户直接运行的 agy；第三方 Key/URL 只经 CCS 启动的终端环境传入，该终端使用 `~/.cc-switch/agy/<provider>/` 私有 gemini 目录并软链接共享 config。
+- **Antigravity CLI**：共享定制目录是 `~/.gemini/config`（MCP `mcp_config.json`、Skills `skills/`、Prompt `AGENTS.md`）。供应商卡不改用户直接运行的 agy；第三方 Key/URL 只经 CCS 启动的终端环境传入，该终端使用 `~/.cc-switch/agy/<provider>/` 独立 gemini 目录并软链接共享 config。
 - **Oh My Pi**：agent 目录默认 `~/.omp/agent`，命名 profile 为 `~/.omp/profiles/<name>/agent`；CCS 读写 `models.yml`/`models.yaml`、`mcp.json`、Skills、`AGENTS.md`。YAML 可含 anchors/tags/flow 写法时必须由原生编辑器处理，不能做通用 provider 文本替换。
-- **DeepSeek Harness**：数据根是 `DSH_HOME` 或 `~/.dsh`；供应商/MCP 写入 web、desktop 和已存在的 headless/acp profile 的 `cordis.patch.yml`，API Key 引用指向 `.credentials.yaml`。`dsh-provider-*` 以事务方式同步 DB、所有 profile 和凭据；home 级 `llm-pi-ai` 覆盖会阻止写入。
-- **Claude Desktop 3P**：`%LOCALAPPDATA%\Claude-3p\claude_desktop_config.json`（MCP/偏好）+ `configLibrary\...157210.json`（网关/模型/toolSearchEnabled）。CCS 4.0.13 起自动维护直连/路由/聚合所需的配置，但 Claude Desktop 仍不在 CCS 的 MCP 同步矩阵中；3P Skills 继续按 manifest 手动同步。
-- **Claude Desktop 1P**：`%APPDATA%\Claude\claude_desktop_config.json`。
+- **DeepSeek Harness**：数据根按 `settings.json:dshConfigDir` → `DSH_HOME` → `~/.dsh` 解析；供应商/MCP 写入 web、desktop 和已存在的 headless/acp profile 的 `cordis.patch.yml`，API Key 引用指向 `.credentials.yaml`。模型输入只允许 `text`/`image`，其他值会被过滤，避免整张供应商卡失效。已存在的 headless profile 在凭据存放于 `.credentials.yaml` 时会补 `credentials: disabled:false` 条目；用户显式配置优先。`dsh-provider-*` 以事务方式同步 DB、所有 profile 和凭据；home 级 `llm-pi-ai` 覆盖会阻止写入。
+- **Claude Desktop 3P**：`<local-app-data>\Claude-3p\claude_desktop_config.json`（MCP/偏好）+ `configLibrary\...157210.json`（网关/模型/toolSearchEnabled）。CCS 4.0.13 起自动维护直连/路由/聚合所需的配置，但 Claude Desktop 仍不在 CCS 的 MCP 同步矩阵中；3P Skills 继续按 manifest 手动同步。
+- **Claude Desktop 1P**：`<roaming-app-data>\Claude\claude_desktop_config.json`。
 - **模型目录**：`~/.codex/cc-switch-model-catalog.json`（CCS 从供应商模板生成；DeepSeek 模板需保持 `supports_search_tool:false` 以规避工具不可见问题）。3.20 的目录支持逐模型思考档位；`model_catalog_json` 指针只在缺失或已是 CCS 自有文件名时才被认领。
 - **Codex 3.20.1+ config-only 切换**：第三方密钥写进 `[model_providers.*]` 表的 `experimental_bearer_token`（属正常形态），`auth.json` 仅存官方 ChatGPT 登录；“非接管切换时保留官方登录”关闭时切换第三方会删除 `auth.json`（3.20.2 只修了接管路径，3.20.3 直切行为不变）。
 - **Codex 缺 `model_provider` 的接管路由（3.20.3）**：接管把缺失的选择器视为内置 `openai`，先把代理地址写进顶层 `openai_base_url`，再由 `prepare` 的规范化步骤改写为 `[model_providers.cc-switch(-N)]`：`model_provider` 指向该表，表内为 `name` + `base_url` + `wire_api = "responses"` + `PROXY_MANAGED` bearer；用户已占用的 `cc-switch` 表名不会被覆盖（顺延 `cc-switch-2`…）。直切仍按 provider 卡的 `settings_config.config` 原样落盘。
@@ -42,13 +43,15 @@
 - **Codex 密钥存储（3.20.1+，3.20.4 修复清空缺陷）**：DB 侧规范位置是 `providers.settings_config.auth.OPENAI_API_KEY`，live 侧是 `[model_providers.<id>].experimental_bearer_token`；3.20.4 之前编辑/切走可能把 auth 清空（#7434），已在 3.20.4 修复但旧值不恢复。本技能 `check --strict` / `doctor --audit` 报告“auth 为空但 provider 表仍有 token”的可恢复形态，`repair --target provider --mode codex-key --apply` 从 provider 表回填（官方卡与代理托管 OAuth 卡跳过）。
 - **MiniMax Code（3.20.4，`mcode`）**：累加模式；供应商是 `~/.minimax/config.yaml` 里的 `custom_provider` 条目（DB `settings_config` 为 JSON：`name/kind/enabled/api/options/models`）；MCP ↔ `~/.minimax/mcp.json`；Skills → `~/.minimax/skills/`；提示词 → `~/.minimax/AGENTS.md`（单条 ≤32 KiB，UTF-8 字节）。数据目录按 `MINIMAX_DATA_DIR` → `MAVIS_DATA_DIR` → `~/.minimax` 解析。CCS 不参与它的本地代理接管、故障转移、托盘、通用配置与 Profiles；默认模型、登录与会话删除也归 MiniMax 自己。
 - **三种模式（4.0）**：每个支持代理的应用处于 **直连 / 路由 / 聚合（Stack）** 之一。聚合从 4.0.13 起支持 Claude Code、Codex 与 Claude Desktop：把多家供应商的模型发布进客户端模型列表，按模型经本地路由分发，无故障转移；状态在设备本地 `~/.cc-switch/live-state.json`（**不在 `CC_SWITCH_HOME` 下、不同步**），Claude Code 各家的发布模型在 `providers.meta.stackModels`。文件里的内部枚举是 `direct/proxy`，聚合由 `stack.enabled` 表示；CCS 界面和本技能 `doctor` 把 `proxy` 显示为 `route`。
-- **配置写入（4.0 重写）**：切供应商只替换地址/Key/模型等关键字段，其余 live 内容（顶层键、`[plugins]`/`[projects]`、`[mcp_servers.*]`、注释、标记）逐字节保留；供应商编辑器的“切换后预览”由 `editor_view` 投影生成，不再做整文 parse→stringify。
+- **配置写入（4.0 重写，4.0.27 软链接修复）**：切供应商只替换地址/Key/模型等关键字段，其余 live 内容（顶层键、`[plugins]`/`[projects]`、`[mcp_servers.*]`、注释、标记）逐字节保留；供应商编辑器的“切换后预览”由 `editor_view` 投影生成，不再做整文 parse→stringify。配置文件是文件软链接时，4.0.27 会写链接目标并保留链接；本技能的 DSH/修复写入遵循同一规则。
+- **Codex 全局键（4.0.25+）**：`[agents].max_threads` 属于客户端全局设置，保存到 live `config.toml` 并跨供应商切换保留，不属于 provider card；不要用 `provider-set-key agents.max_threads` 写入卡片。
+- **Codex 模型目录指针（4.0.27）**：CCS 自有 `model_catalog_json` 在原生本地配置目录中写绝对路径，避免新版 Codex 在重读自定义权限时拒绝裸文件名；WSL/UNC 配置目录继续使用裸文件名。`check --strict` 会报告原生目录中的相对形态。
 - **通用配置片段（4.0 移除）**：`settings.common_config_*` 与 `providers.meta.common_config_enabled` 只是升级遗留，4.0 不再读取；共享设置应直接写在客户端 live 配置里。
 - **Pi MCP（4.0）**：Pi 1.0 内置 MCP，配置在 `~/.pi/agent/mcp.json`（`enabled_pi`）；只写连接字段，关同步=停用不删条目。
 - **Codex 会话压缩（4.0.7）**：开关直接改 `config.toml`，写入 `[features] local_thread_store_compression = true`；Codex 启动时把 7 天以上没动过的会话压成同名 `.jsonl.zst`（CCS 不另存该设置；直接读 `.jsonl` 的第三方工具可能读不到压缩会话）。
 - **恢复 `.db` 备份（3.20 行为变化）**：恢复后会按新库**重写所有受管应用的 live 配置（Pi 除外）**，而旧版只改数据库——恢复后仍需复核 MCP 三处一致。
 
-## 受管应用（CCS 4.0.23 共 14 个）与 Skills 目录
+## 受管应用（CCS 4.0.27 共 14 个）与 Skills 目录
 
 见 references/apps.md 的完整矩阵。
 
@@ -56,5 +59,6 @@
 
 - 源：`<cc-home>/skills/<name>`（`skillStorageLocation=cc_switch` 时）
 - 各受管应用：`~/.<app>/skills/<name>`，形态由 `skillSyncMethod` 决定（`auto` 优先 symlink、失败或已有普通目录时回退 copy；`symlink` 恒为链接；`copy` 恒为复制）
+- `skills.content_hash` 按完整目录计算：相对路径排序，忽略隐藏文件、`__pycache__/` 与 `*.pyc`。仅运行 Skill 生成 Python 字节码不应造成“可更新”假阳性。
 - MiniMax Code：`~/.minimax/skills/<name>`（数据目录按 `MINIMAX_DATA_DIR` → `MAVIS_DATA_DIR` → `~/.minimax` 解析；Pi 式归属检查，不动非 CCS 所有的同名 skill）
-- Claude Desktop 3P：`%LOCALAPPDATA%\Claude-3p\local-agent-mode-sessions\skills-plugin\{org}\{account}\skills\<name>`（Junction）+ manifest.json 条目（`creatorType:"user"`, `syncManaged:false`, `enabled:true`）+ `cc-switch-managed.json`（管理标记）
+- Claude Desktop 3P：`<local-app-data>\Claude-3p\local-agent-mode-sessions\skills-plugin\{org}\{account}\skills\<name>`（Junction）+ manifest.json 条目（`creatorType:"user"`, `syncManaged:false`, `enabled:true`）+ `cc-switch-managed.json`（管理标记）

@@ -2,7 +2,7 @@
 
 只记录 CC Switch 官方版本带来的行为变化；不包含任何用户/环境相关说明。
 
-## 4.0（正式版 4.0.4，2026-10-06；含 4.0.5–4.0.23 修复）
+## 4.0（正式版 4.0.4，2026-10-06；含 4.0.5–4.0.27 修复）
 
 - **数据库迁移 v19 → v20**：`mcp_servers` 新增 `enabled_pi`（MCP 同步到 Pi 1.0）。首次启动自动迁移并尝试备份到 `<cc-home>/backups/`；运行过 4.0 后 3.x 会以“数据库版本过新”拒绝打开。
 - **配置写入重写（#6719 修复）**：供应商编辑页保存只替换地址、Key、模型等关键字段，其余内容（顶层键、`[plugins]`/`[projects]`/`[mcp_servers.*]`、注释、`# >>> … <<<` 标记）逐字节保留；零改动保存与保存前逐字节一致；不再剥离/合并通用配置；url-only 远程 MCP 不再写成空 `command`，Codex 的 `[mcp_servers.*]` 不再写 `type`。**已损坏的存量条目不会自动修**：在 MCP 面板把服务器关掉再打开重写，或用本技能 `check --strict` / `repair` / `mcp-upsert`。
@@ -23,7 +23,11 @@
 - **4.0.21**：Claude 多官方订阅账号通过独立 `CLAUDE_CONFIG_DIR` 管理，令牌仍由 Claude Code 保存；Codex MCP 不再写入其他客户端的 `timeout` / `autoApprove`，旧 live 值需清理；Codex 路由地址改为按 `model_provider` 选中表解析。
 - **4.0.22**：新增第 14 个应用 **DeepSeek Harness（`dsh`）**；schema v23→v24，MCP/Skills 增加 `enabled_dsh`，`session_log_sync` 增加内部 `parser_state`。供应商/MCP 分布在 web/desktop/headless/acp profile patch，凭据存 `.credentials.yaml`；Oh My Pi 用量开始统计；Codex `[[skills.config]]` 数组表误写修复。
 - **4.0.23**：Kimi/MiniMax/OMP 供应商编辑器改为原生文件格式；Claude 路由思考档位扩展到更多 OpenAI/Gemini 模型；Antigravity/MiniMax 用量增加耗时和首字时间；供应商表单互相覆盖、轻量模式窗口、DeepSeek Harness 链接 profile 编辑等问题修复。schema 仍为 v24。
-- **升级须知**：升级前建议手动再备份一次；Codex 模型目录/会话分组的修复要等下一次写入；已有 MCP 配置重新同步一次；运行过 4.0.22 后数据库为 v24，旧版 CCS 会拒绝打开。支持 Agy/Kimi 完整标志需 v1.4.0+；支持 OMP/DSH 与 schema v24 需 v1.5.0+。
+- **4.0.24**：DSH 的模型输入模态只保留 `text`/`image`，避免 `pdf` 等值让供应商配置整体失效；GPT-5.6+ 的 Sol/Terra/Luna/Astra 模型保留 `max` 思考档位；Codex Chat 供应商重新开启思考等级后能正常发送档位。无 schema 迁移。
+- **4.0.25**：MCP 页面新增实际连通性测试；Codex `[agents].max_threads` 作为客户端全局设置写入 live 并跨供应商保留；本地路由拒绝带浏览器来源标记的请求。MCP 连通性不是数据库结构一致性，`doctor --audit` 不会启动未知 MCP 进程；Windows 终端优先使用已安装的 PowerShell 7。无 schema 迁移。
+- **4.0.26**：DSH 新增配置目录（`dshConfigDir`，可指向 WSL/UNC），解析顺序先于 `DSH_HOME`；headless profile 使用存放的 Key 时恢复 credentials store；一键导入扩展到 Claude Desktop、MiniMax、Kimi、DSH、OMP。Codex 卡片可保留官方 Fast 档（Responses 上游下按 `service_tier=priority`）。schema 仍为 v24。
+- **4.0.27**：配置文件是软链接时写真实目标，不再替换链接或在 Windows 报锁文件错误；Skill 更新哈希忽略 `__pycache__/`、`*.pyc` 和隐藏文件；原生 Codex 配置目录的 CCS 自有 `model_catalog_json` 改为绝对路径，WSL/UNC 目录保留裸文件名；DSH profile YAML 错误带上具体文件路径。无 schema 迁移。
+- **升级须知**：升级前建议手动再备份一次；Codex 模型目录/会话分组的修复要等下一次写入；已有 MCP 配置重新同步一次；运行过 4.0.22 后数据库为 v24，旧版 CCS 会拒绝打开。支持 Agy/Kimi 完整标志需 v1.4.0+；支持 OMP/DSH 与 schema v24 需 v1.5.0+；对齐 4.0.24–4.0.27 的软链接、DSH 和哈希语义需 v1.5.1+。
 
 ## 3.20.4（2026-09-22）
 
@@ -61,7 +65,7 @@
 - **接管按登录状态覆盖该标志**：接管写入器先解析 Codex 的鉴权模式（显式 `auth_mode` > 个人访问令牌 > Bedrock API key > Bedrock 访问密钥 > `OPENAI_API_KEY` > ChatGPT），再按凭据存储判定——`file` 跟随 `auth.json` 是否持有官方登录；`ephemeral` 视为未登录（写 `false`）；`keyring` / `auto` 无法从磁盘判定，保留卡上原值；`auth.json` 缺失、不可读或损坏一律视为未登录，且不再让接管写入失败。这修掉了“直切删掉 `auth.json` 后再开接管，Codex 停在登录屏”的坑。
 - **catalog 类修复在下一次切换供应商时生效**（切换时重建 catalog）：DeepSeek 预设改为 `supports_search_tool = false`（MCP 工具不再被隐藏）、`supports_parallel_tool_calls` 加入必填回填清单、DeepSeek 未匹配型号按注册表解析输入模态、`glm-5.3` 加入已确认纯文本清单。
 - **预设 = 创建时的快照，改动只影响新建卡**：本版涉及智谱 GLM（改指官方 Responses 端点 `/api/v1`、默认 `glm-5.3`）、`grok-4.5` 的 `xhigh` 档、腾讯 Pi 预设的思考控制、腾讯预设里 `minimax-m2.5` 的移除——**存量智谱 Codex 卡仍指向 Chat 端点，直连依旧失败，需重新导入预设**。例外：PPIO、JieKou、Novita 的模型列表地址按卡片 Base URL 反查预设，仍在默认地址上的存量卡无需改动。
-- **Codex OAuth 接管自报版本升到 0.153.4**：GPT-6 经 Codex OAuth 不再被后端以“需要更新 Codex”拒绝；若绕过 CCS 直接用 Codex CLI，需本机 Codex ≥ 0.153.0。
+- **Codex OAuth 接管自报版本升到 0.153.4**：GPT-6 经 Codex OAuth 不再被后端以“需要更新 Codex”拒绝；若绕过 CCS 直接用 Codex CLI，需 Codex CLI ≥ 0.153.0。
 - **#6719 仍未修复**：3.20.2 的修复列表不含“编辑页零改动保存破坏配置”，故该缺陷在 3.20.0–3.20.2 均存在，编辑页维护 Codex 供应商/通用配置的警告继续有效。
 - **代理与用量层修复**（不影响本技能的操作方式）：Grok 经 xAI 原生 Responses 跑通、Codex 内置图片生成走本地路由、Moonshot `$ref` 兄弟键改写、Claude Code 在 Codex OAuth 上并行工具调用、中途 system 消息原位转发恢复前缀缓存、resume 后用量补记、九月定价刷新与七个新模型定价行。
 

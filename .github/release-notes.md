@@ -1,13 +1,12 @@
-# v1.5.0 增量更新
+# v1.5.1 增量更新
 
-## 对齐 CC Switch 4.0.23 / schema v24
+## 对齐 CC Switch 4.0.27 / schema v24
 
-- **新增 Oh My Pi（`omp`）支持**：MCP、Skills、Prompt 和 `enabled_omp`；兼容默认/命名 profile、目录覆盖和 Skills“存在即启用”语义。
-- **新增 DeepSeek Harness（`dsh`）完整供应商支持**：新增 `dsh-provider-get/set/remove`，事务式更新 web/desktop 及已存在的 headless/acp `cordis.patch.yml`、`.credentials.yaml` 和数据库行。
-- **DSH 安全保护**：拒绝 profile 副本不一致、home-level `llm-pi-ai` 覆盖、flow YAML、anchors/tags；通用 provider-* 命令不会误写 DSH。
-- **数据库迁移对齐**：4.0.20 升至 v23（MCP `enabled_omp`），4.0.22 升至 v24（MCP/Skills `enabled_dsh` 与内部 `parser_state`）。
-- **Codex MCP 审计扩展**：`check --strict` 和 `repair --mode mcp-type` 现在清理 Codex 拒绝的 `type`、`timeout`、`autoApprove`。
-- **14 应用支持**：MCP/Skills/Prompt、启用标志和 `doctor` 全部覆盖新增应用；补充 4.0.20–4.0.23 行为变化、原生供应商编辑器、Claude 多账号和路由思考档位说明。
+- **DSH 对齐 4.0.24/4.0.26**：模型输入只保留 `text`/`image`；解析 `settings.json:dshConfigDir`（含 WSL 路径）；已有 headless profile 在需要时恢复 credentials store。
+- **软链接安全写入（4.0.27）**：原子写入会更新链接目标，不再把配置文件软链接替换成普通文件，也避免 Windows 原子替换报错。
+- **Skill 哈希对齐（4.0.27）**：`skill-upsert` 改为完整目录哈希，忽略隐藏文件、`__pycache__/` 和 `*.pyc`，运行 Skill 不再制造“可更新”假阳性。
+- **Codex 结构审计增强**：检测 provider card 中违规的 `[agents].max_threads`；检测原生配置目录中的相对 `model_catalog_json`，新增 `repair --mode codex-catalog-path`。
+- **文档更新**：补充 4.0.24–4.0.27 的 MCP 连通性、本地路由来源限制、DSH 目录/凭据、Codex Fast 与全局设置行为。
 
 ## 更新安装方法
 
@@ -31,14 +30,13 @@ python scripts/ccs_db.py doctor --audit
 
 ---
 
-## v1.5.0 Incremental (English)
+## v1.5.1 Incremental (English)
 
-- **Oh My Pi (`omp`) support**: MCP, Skills, Prompts and `enabled_omp`, including default/named profiles, directory overrides, and exists-equals-enabled skill semantics.
-- **Full DeepSeek Harness (`dsh`) provider support**: new `dsh-provider-get/set/remove` commands atomically update every profile patch, `.credentials.yaml`, and the database row.
-- **DSH safety**: refuses inconsistent profile copies, home-level `llm-pi-ai` shadowing, flow YAML, anchors, tags and aliases; generic provider-* commands never write DSH.
-- **Schema alignment**: CC Switch 4.0.20 moved to v23 (`enabled_omp`); 4.0.22 moved to v24 (`enabled_dsh` and internal `parser_state`).
-- **Codex MCP audit**: `check --strict` and `repair --mode mcp-type` now clean the Codex-invalid `type`, `timeout`, and `autoApprove` keys.
-- **14-app coverage**: MCP/Skills/Prompt flags and `doctor` now cover both new apps; docs include 4.0.20–4.0.23 behavior, native provider editors, Claude multi-account support, and expanded thinking levels.
+- **DSH aligned with 4.0.24/4.0.26**: model inputs are limited to `text`/`image`, `settings.json:dshConfigDir` (including WSL paths) is honored, and existing headless profiles restore the managed credentials store when needed.
+- **Symlink-safe writes (4.0.27)**: atomic writes update the link target instead of replacing a config symlink with a regular file or failing on Windows.
+- **Skill hash alignment (4.0.27)**: `skill-upsert` now hashes the complete directory while ignoring hidden files, `__pycache__/`, and `*.pyc`, preventing false update detection after running a skill.
+- **Codex audit improvements**: detects provider-card misuse of `[agents].max_threads` and relative `model_catalog_json` pointers in native config dirs; adds `repair --mode codex-catalog-path`.
+- **Documentation**: covers 4.0.24–4.0.27 MCP connectivity, local-router origin protection, DSH directory/credentials behavior, Codex Fast, and global settings.
 
 ### Update / Install
 

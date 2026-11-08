@@ -35,12 +35,13 @@ This skill turns safe maintenance into one repeatable workflow:
 
 ## Compatibility
 
-- Designed and tested with **CC Switch 4.0.23** (database schema v24). 4.0.20 moved v22 to v23 with MCP `enabled_omp`; 4.0.22 moved v23 to v24 with MCP/Skills `enabled_dsh` and internal `session_log_sync.parser_state`. Older releases cannot open the migrated database.
+- Designed and tested with **CC Switch 4.0.27** (database schema v24). 4.0.24–4.0.27 do not migrate the database; 4.0.20 moved v22 to v23 with MCP `enabled_omp`, and 4.0.22 moved v23 to v24 with MCP/Skills `enabled_dsh` and internal `session_log_sync.parser_state`. Older releases cannot open the migrated database.
 - Historical databases remain readable where required columns exist: v17 (3.20.0), v18 (3.20.1–3.20.3), v19 (3.20.4), v20 (4.0.16–4.0.17), v21 (4.0.18), v22 (4.0.19), and v23 (4.0.20–4.0.21).
 - What 4.0 changes: **the common-config snippet feature is gone** (shared settings now live in the client config file and survive provider switches; a model or effort picked inside the client reverts to the provider's value on switch); a third mode, **stack/aggregation** (Claude Code and Codex, plus Claude Desktop since 4.0.13; per-model dispatch, no failover; state in the device-local `~/.cc-switch/live-state.json`, Claude Code models in `providers.meta.stackModels`); config writing replaces only key fields (the #6719 fix); MCP syncs to Pi (`~/.pi/agent/mcp.json`, `enabled_pi`); Codex 0.158+'s MCP `type` rejection is fixed (CCS 4.0 strips it on write); optional Codex session compression writes `[features] local_thread_store_compression`; GitHub Copilot accounts work on Codex (router on).
 - **`common-config` only works on CCS ≤ 3.20.4 (schema ≤ v19)**; on v20 every `common-config` subcommand is refused with guidance: shared keys belong in the client live config, provider-specific fields in the card (`provider-block` / `provider-set-key` / `provider-env`).
-- mcode needs 3.20.4+; Pi needs 4.0+; Antigravity (`--enable-agy`) needs 4.0.18+; Kimi Code (`--enable-kimi`) needs 4.0.19+; Oh My Pi (`--enable-omp`) needs 4.0.20+; DeepSeek Harness (`--enable-dsh`) needs 4.0.22+.
-- Kimi/OMP/mcode provider structures and Agy terminal-launch cards are managed in the CC Switch UI. DeepSeek Harness uses `dsh-provider-get/set/remove`, which atomically updates every profile patch, `.credentials.yaml`, and the database row.
+- mcode needs 3.20.4+; Pi needs 4.0+; Antigravity (`--enable-agy`) needs 4.0.18+; Kimi Code (`--enable-kimi`) needs 4.0.19+; Oh My Pi (`--enable-omp`) needs 4.0.20+; DeepSeek Harness (`--enable-dsh`) needs 4.0.22+. DSH resolves its directory as **CCS setting → `DSH_HOME` → `~/.dsh`**; `--dsh-home` is an explicit helper override.
+- Kimi/OMP/mcode provider structures and Agy terminal-launch cards are managed in the CC Switch UI. DeepSeek Harness uses `dsh-provider-get/set/remove`, which atomically updates every profile patch, `.credentials.yaml`, and the database row, including the 4.0.24+ input-modality rules and 4.0.26+ headless credential store.
+- Dotfiles-managed config files may be symlinks: the 4.0.27-aligned writer updates the link target instead of replacing the link with a regular file.
 - Legacy 3.20.x behavior (missing-`model_provider` takeover routing, universal-sync child settings, proxy retry/timeout cross-writes, Kimi/DeepSeek presets) and the full 4.0 change list are in `references/migration.md`.
 - Proxy-managed OAuth cards (xAI OAuth / GitHub Copilot) are forced to `requires_openai_auth = false` (the local proxy injects the token); `check --strict` flags the wrong value, and `repair --mode codex-0149` fixes it early.
 - Run `python scripts/ccs_db.py doctor` to check the schema, each app's current mode (direct/route/stack), malformed state files, and the Codex auth-preservation guard before operating.
@@ -52,7 +53,7 @@ This skill turns safe maintenance into one repeatable workflow:
 - UTF-8-safe database helper (`scripts/ccs_db.py`) for Chinese content.
 - Covers all 14 managed apps: codex, claude, claude-desktop, gemini, grokbuild, opencode, openclaw, hermes, pi, mcode, kimi, agy, omp, dsh.
 - Cross-platform: `CC_SWITCH_HOME` / `~/.cc-switch` discovery, PowerShell and bash examples.
-- `doctor` prints resolved paths, the schema, all 14 apps and provider counts, MCP/Skills flag availability, and each app's current mode; it also reports OMP's exists-equals-enabled skill semantics and health warnings.
+- `doctor` prints resolved paths, the DSH config directory, the schema, all 14 apps and provider counts, MCP/Skills flag availability, and each app's current mode; it also reports malformed state, relative model-catalog pointers, OMP's exists-equals-enabled skill semantics, and health warnings.
 
 ## How it works
 
@@ -73,7 +74,7 @@ Every write follows a safe, verifiable flow:
 - **Safe-by-default writes**: backup → stop CCS → edit → validate → restart → re-check, so a running CCS cannot overwrite your changes from memory.
 - **Encoding-safe**: UTF-8-safe reads and writes prevent Chinese content from being corrupted into `?`; `check` scans for likely mojibake before and after changes.
 - **Read-only first**: `doctor` and `check` never modify anything — inspect the environment before changing it.
-- **No secrets handling**: the helper never reads or uploads credentials; it only manages the local CCS configuration you point it at.
+- **Credentials stay local**: generic commands never read credentials; the optional DSH provider command only writes the key you supply into the local `.credentials.yaml`, without echoing it, uploading it, or making a network request.
 - **Transparent and auditable**: MIT-licensed, zero third-party dependencies, no hidden behavior — the full source is in this repository.
 
 
@@ -146,12 +147,13 @@ python scripts/ccs_db.py repair --target config.toml --mode header-order   # dry
 python scripts/ccs_db.py repair --target provider --mode codex-0149        # dry-run: migrate legacy openai_base_url misroutes
 python scripts/ccs_db.py repair --target provider --mode codex-key         # dry-run: restore a key wiped by CCS #7434
 python scripts/ccs_db.py repair --target provider --mode mcp-type         # dry-run: strip MCP `type` keys Codex rejects
+python scripts/ccs_db.py repair --target config.toml --mode codex-catalog-path  # dry-run: fix the CCS-owned catalog pointer
 
 # Examples (see references/operations.md for the full set)
 python scripts/ccs_db.py mcp-upsert --name my-server --config-file server_config.json --enable-codex --enable-claude
 python scripts/ccs_db.py mcp-upsert --name my-server --config-file server_config.json --enable-pi  # Pi 1.0 (CCS 4.0+)
 python scripts/ccs_db.py mcp-upsert --name my-server --config-file server_config.json --enable-agy --enable-kimi  # CCS 4.0.19+
-python scripts/ccs_db.py mcp-upsert --name my-server --config-file server_config.json --enable-omp --enable-dsh    # CCS 4.0.23
+python scripts/ccs_db.py mcp-upsert --name my-server --config-file server_config.json --enable-omp --enable-dsh    # CCS 4.0.27
 python scripts/ccs_db.py dsh-provider-get --provider-id <id>
 python scripts/ccs_db.py dsh-provider-set --provider-id <id> --config-file dsh-provider.json --apply
 python scripts/ccs_db.py dsh-provider-remove --provider-id <id> --apply
@@ -170,10 +172,10 @@ Set `CC_SWITCH_HOME` to override the CC Switch home directory (default: `~/.cc-s
 To package the skill into a distributable zip (for example to install it in CC Switch or share it manually):
 
 ```bash
-python scripts/build-zip.py --version 1.5.0
+python scripts/build-zip.py --version 1.5.1
 ```
 
-Output: `dist/CCSwitch-operations-v1.5.0.zip`.
+Output: `dist/CCSwitch-operations-v1.5.1.zip`.
 
 ## License
 

@@ -47,7 +47,7 @@
 | Codex 0.154+ 经 Chat 网关整轮 400 / 一张截图后会话每轮都失败 | `additional_tools` 被当成消息生成 `content: null`（#7454）；`detail:"original"` 只在 Responses 合法（#7476）；无描述工具发 `description: null`（#7319/#7378） | 升级到 3.20.4（已坏会话自动恢复）；升级后相关请求有一次前缀缓存未命中，之后稳定 |
 | 打开 CCS 提示词列表后 DB 里的提示词被 live 文件覆盖 | 3.20.4 起打开列表会读回 live 文件（`CLAUDE.md`/`AGENTS.md` 等）的外部修改（#7194，Pi 除外） | 维护提示词时用 `prompt-set` 写 DB；先确认 live 文件内容就是要保留的内容，再打开列表 |
 | 升级 3.20.4 后“隐藏 AI 署名”显示未勾选 | 新判定额外要求 `attribution.sessionUrl = false`，旧格式不带该字段（#7053） | 重新勾选一次（会自动补 `sessionUrl:false`） |
-| 3.20.4 升级后部分预设/端点/计价与预期不同 | AICodeWith 的 Codex 端点改为 `/v1`（存量卡是创建时快照）；DeepSeek V4 Pro 撤回调价、回到高峰档；`Ling-2.6-1T` 转纯文本 | 存量 AICodeWith 卡手动改端点或重新导入预设；其余是官方行为，无需本机操作 |
+| 3.20.4 升级后部分预设/端点/计价与预期不同 | AICodeWith 的 Codex 端点改为 `/v1`（存量卡是创建时快照）；DeepSeek V4 Pro 撤回调价、回到高峰档；`Ling-2.6-1T` 转纯文本 | 存量 AICodeWith 卡手动改端点或重新导入预设；其余是官方行为，无需额外操作 |
 | MiniMax Code（mcode）提示词写入失败 / CCS 找不到数据目录 | 提示词按 UTF-8 字节限 32 KiB；数据目录只认 `MINIMAX_DATA_DIR`/`MAVIS_DATA_DIR` 环境变量（都没有时用 `~/.minimax`） | 用 `prompt-set --app-type mcode`（本技能会先校验 32 KiB）；自定义目录时启动 CCS 也要带同一个环境变量；删除被 `defaultModel` 引用的供应商前先在 MiniMax Code 里换默认模型 |
 | CCS 4.0 里 `common-config` 改了没效果 | 4.0 移除了“通用配置片段”：DB 里的 `common_config_*` 与 `providers.meta.common_config_enabled` 只是升级遗留 | 本技能在 schema v20 上会拒绝所有 `common-config` 命令；共享键写进客户端 live 配置（如 `~/.codex/config.toml`），供应商专属字段写卡片（`provider-block` / `provider-set-key` / `provider-env`） |
 | Codex 因 MCP `type` / `timeout` / `autoApprove` 报错 | 旧版 CCS 或手动配置把其他客户端的字段写进 `[mcp_servers.*]`；4.0.21 起写入时会剥离，但 live 里可能残留旧值 | `check --strict`；`repair --target config.toml --mode mcp-type [--apply]` 或面板关/开重写；不要手写这三项 |
@@ -65,6 +65,15 @@
 | DSH 的 Web/Desktop 供应商副本不一致 | 两份 `cordis.patch.yml` 被手动改成了不同内容 | `dsh-provider-set/remove` 会拒绝避免覆盖；先在 DSH/CCS 修复副本一致性 |
 | DSH 的 home patch 覆盖供应商 | `$DSH_HOME/cordis.patch.yml` 里有 `llm-pi-ai` 非空 config，会覆盖每个 profile | 先从 home patch 移除该配置，再使用 `dsh-provider-set` |
 | DSH profile 使用 `!!js`、anchors 或 aliases | DSH 会动态执行/复用 YAML 值，Python 文本写入无法保证语义 | 工具会拒绝；在 `cordis.patch.yml` 原生编辑器里处理 |
+| DSH 第三方供应商全部消失 | 模型 `modalities.input` 含 `pdf` 等 `llm-pi-ai` 不接受的值，整张供应商节点校验失败（#9116） | 使用 v1.5.1+ 的 `dsh-provider-set`，它会只保留 `text`/`image` 并告警；已有坏配置在 CCS 4.0.24+ 原生编辑器或本技能重写 |
+| DSH headless 报 `MISSING_CREDENTIAL` | 自带 headless profile 关闭了 `.credentials.yaml`，Key 只存在凭据库时不可见 | CCS 4.0.26+ 会补 `- id: credentials` 和 `disabled:false`；本技能仅在用户未显式配置该条目时做同样处理 |
+| DSH 写到了错误的目录 | 只检查 `DSH_HOME`，忽略了 CCS 4.0.26+ 设置里的 `dshConfigDir`（可指向 WSL） | 使用 v1.5.1+；解析顺序为 `--dsh-home` → `dshConfigDir` → `DSH_HOME` → `~/.dsh`，`doctor` 会显示最终目录和来源 |
+| 配置文件是软链接，切换后链接变成普通文件或 Windows 报错 | 旧写入器替换了链接本身；Windows 原子替换可能返回 1464 | CCS 4.0.27+ 会写链接目标并保留链接；本技能 v1.5.1+ 的原子写入同样解析最终目标 |
+| Skill 只运行过一次就显示“可更新” | Python 生成了 `__pycache__/` 或 `.pyc`，旧目录哈希把它们算进内容 | CCS 4.0.27+ 与本技能 v1.5.1+ 忽略隐藏文件、`__pycache__/`、`*.pyc`；不要为刷新状态手工删业务文件 |
+| `content_hash` 与 CCS 对同一 Skill 显示的值不同 | 只哈希了 `SKILL.md`，而 CCS 4.0.27 按完整 Skill 目录计算 | 运行 v1.5.1+ 的 `skill-upsert` 重算；不要继续使用只覆盖单文件的旧哈希 |
+| Codex 配置了自定义权限后，plan 模式报 `AbsolutePathBuf deserialized without a base path` | 原生配置目录里的 CCS 自有 `model_catalog_json` 仍是裸文件名（#7294） | 升级 4.0.27；下一次 CCS 写入会改成绝对路径，也可先跑 `repair --target config.toml --mode codex-catalog-path --apply`。WSL/UNC 目录保持裸文件名 |
+| 把 `[agents].max_threads` 写进供应商卡，切换后时有时无 | 4.0.25 起该键是 Codex 全局设置，只保存在 live `config.toml` 并跨供应商保留 | 从 provider card 删除；在 CCS 供应商表单/Codex live 配置里设置。`check --strict` 会拦截 provider card 中的该键 |
+| `doctor --audit` 通过，但 MCP 实际连不上 | 结构审计只比较 DB/provider/live 三处配置，不执行本地命令或不访问远端；4.0.25+ 才提供实际连通性测试 | 在 CCS MCP 页面点“检查连通性/测试连接”；不要用未知 MCP 的启动来证明配置有效 |
 | 打开「压缩 Codex 历史会话」后别的工具读不到会话 | 7 天以上会话被压成 `.jsonl.zst`，直接读 raw `.jsonl` 的工具看不到 | 属于预期行为：压缩会话在 CCS 里照常可读，Codex 继续时会自动解压；需要被第三方读取时不要开该开关 |
 | 升级 4.0 后旧触发的问题还在 | 部分修复（Codex 模型目录、会话分组、MCP `type`）要等 CCS 下一次写入才生效 | 升级后切换一次供应商；已有 MCP 配置重新同步一次；时间 MCP 预设改为 `uvx mcp-server-time`（存量需手改） |
 | 4.0 里找不到设置项 | 4.0 移除了供应商成本倍率、连通性检查高级设置、Claude 的 Teammates 与最大强度 | 已写入配置的环境变量不会被自动删除；需要时用官方端点的默认值或在会话里用 `/effort max` |

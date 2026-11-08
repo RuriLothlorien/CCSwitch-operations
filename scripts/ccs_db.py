@@ -60,6 +60,7 @@ import os
 import re
 import shutil
 import sqlite3
+import stat
 import sys
 import time
 from pathlib import Path
@@ -413,14 +414,15 @@ def cmd_prompt_set(args):
 
 
 def cmd_skill_upsert(args):
-    desc = read_text(args.description_file) if args.description_file else (args.description or "")
+    desc = read_text(args.description_file) if args.description_file else args.description
     directory = args.directory or args.name
     cc_home, db_path = resolve_paths(args)
     run_preflight(args, cc_home, db_path, ())
-    source = cc_home / "skills" / directory / "SKILL.md"
+    source_dir = cc_home / "skills" / directory
+    source = source_dir / "SKILL.md"
     content_hash = args.content_hash or ""
     if source.exists():
-        content_hash = hashlib.sha256(source.read_bytes()).hexdigest()
+        content_hash = _skill_directory_hash(source_dir)
     now = int(time.time())
     skill_id = f"local:{args.name}"
     con = connect(db_path)
@@ -429,7 +431,11 @@ def cmd_skill_upsert(args):
     col_names = [col for _, col in flag_cols]
     values = _flag_values(args, flag_cols)
     notes = _unavailable_flag_notes("skills", flag_cols, args)
-    existing = cur.execute("SELECT id FROM skills WHERE id=?", (skill_id,)).fetchone()
+    existing = cur.execute(
+        "SELECT id, description FROM skills WHERE id=?", (skill_id,)
+    ).fetchone()
+    if desc is None:
+        desc = (existing["description"] or "") if existing else ""
     warn = None
     if existing and col_names:
         prev = cur.execute(
@@ -530,21 +536,88 @@ def _read_optional_text(path):
         return None
 
 
+def _resolve_symlink_target(path):
+    """Return the final file targeted by a chain of file symlinks.
+
+    Atomic replacement must target the linked file rather than the link itself.
+    Replacing the link breaks dotfiles-managed configs; Windows may instead fail
+    with error 1464. Directory links are left to the OS path resolver.
+    """
+    current = Path(path)
+    for _ in range(40):
+        try:
+            is_link = current.is_symlink()
+        except OSError:
+            return current
+        if not is_link:
+            return current
+        try:
+            target = Path(os.readlink(current))
+        except OSError:
+            return current
+        if target.is_absolute():
+            current = target
+            continue
+        parent = current.parent
+        if ".." in target.parts:
+            try:
+                parent = parent.resolve(strict=False)
+            except OSError:
+                pass
+        current = parent / target
+    raise SystemExit(f"too many symlink hops while writing {path}")
+
+
 def _atomic_write_text(path, text, private=False):
-    path = Path(path)
+    path = _resolve_symlink_target(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     temp = path.with_name(f".{path.name}.tmp-{os.getpid()}-{time.time_ns()}")
+    existing_mode = None
+    try:
+        existing_mode = stat.S_IMODE(path.stat().st_mode)
+    except OSError:
+        pass
     try:
         with open(temp, "w", encoding="utf-8", newline="\n") as f:
             f.write(text)
             f.flush()
             os.fsync(f.fileno())
-        if private and os.name != "nt":
-            os.chmod(temp, 0o600)
+        if os.name != "nt":
+            if private:
+                os.chmod(temp, 0o600)
+            elif existing_mode is not None:
+                os.chmod(temp, existing_mode)
         os.replace(temp, path)
     finally:
         if temp.exists():
             temp.unlink()
+
+
+def _skill_directory_hash(root):
+    """Match CC Switch 4.0.27's Skill directory hash.
+
+    Hidden entries and Python bytecode caches are excluded. Each remaining file
+    contributes `relative/path + NUL + bytes + NUL`, in relative-path order.
+    """
+    root = Path(root)
+    files = []
+    for path in root.rglob("*"):
+        relative = path.relative_to(root)
+        if any(part.startswith(".") for part in relative.parts):
+            continue
+        if "__pycache__" in relative.parts or path.suffix == ".pyc":
+            continue
+        if path.is_file():
+            files.append(path)
+    files.sort(key=lambda path: path.relative_to(root).as_posix())
+    hasher = hashlib.sha256()
+    for path in files:
+        relative = path.relative_to(root).as_posix()
+        hasher.update(relative.encode("utf-8"))
+        hasher.update(b"\0")
+        hasher.update(path.read_bytes())
+        hasher.update(b"\0")
+    return hasher.hexdigest()
 
 
 def _yaml_key(key):
@@ -628,14 +701,41 @@ def _meaningful(line):
     return bool(stripped and not stripped.startswith("#"))
 
 
-def dsh_home(args):
+def resolve_dsh_home(args, cc_home=None, strict_settings=True):
+    """Resolve DSH_HOME using CC Switch 4.0.26+ precedence.
+
+    `--dsh-home` is the helper-only explicit override. Otherwise CC Switch's
+    Settings > App Config > DeepSeek Harness directory wins over `DSH_HOME`,
+    which wins over `~/.dsh`.
+    """
     override = getattr(args, "dsh_home", None)
     if override:
-        return Path(override).expanduser()
+        return Path(override).expanduser(), "--dsh-home"
+    if cc_home:
+        settings_file = Path(cc_home) / "settings.json"
+        if settings_file.exists():
+            try:
+                with open(settings_file, "r", encoding="utf-8-sig") as f:
+                    settings = json.load(f)
+                if not isinstance(settings, dict):
+                    raise ValueError("top-level JSON value is not an object")
+            except Exception as exc:
+                if strict_settings:
+                    raise SystemExit(
+                        f"cannot resolve dshConfigDir from {settings_file}: {exc}"
+                    )
+            else:
+                configured = settings.get("dshConfigDir")
+                if isinstance(configured, str) and configured.strip():
+                    return Path(configured.strip()).expanduser(), "settings.json:dshConfigDir"
     env = os.environ.get("DSH_HOME")
     if env:
-        return Path(env).expanduser()
-    return Path.home() / ".dsh"
+        return Path(env).expanduser(), "DSH_HOME"
+    return Path.home() / ".dsh", "default"
+
+
+def dsh_home(args, cc_home=None):
+    return resolve_dsh_home(args, cc_home=cc_home)[0]
 
 
 def dsh_profile_paths(home):
@@ -987,6 +1087,66 @@ def _dsh_home_shadows_providers(home):
     return False
 
 
+def _dsh_has_entry(text, entry_id):
+    lines = [] if text is None else text.splitlines()
+    pattern = re.compile(
+        rf"^(?:-\s+)?id:\s*(?:\"{re.escape(entry_id)}\"|'{re.escape(entry_id)}'|{re.escape(entry_id)})\s*(?:#.*)?$"
+    )
+    for start, end in _dsh_entry_bounds(lines):
+        if any(pattern.match(lines[idx].strip()) for idx in range(start, end)):
+            return True
+    return False
+
+
+def _dsh_credentials_has_ref(text, reference):
+    lines = [] if text is None else text.splitlines()
+    refs_idx = next(
+        (i for i, line in enumerate(lines) if re.match(r"^refs:\s*(?:#.*)?$", line)),
+        None,
+    )
+    if refs_idx is None:
+        return False
+    refs_end = next(
+        (
+            i
+            for i in range(refs_idx + 1, len(lines))
+            if _meaningful(lines[i]) and _line_indent(lines[i]) == 0
+        ),
+        len(lines),
+    )
+    for idx in range(refs_idx + 1, refs_end):
+        if not _meaningful(lines[idx]) or _line_indent(lines[idx]) != 2:
+            continue
+        key, sep, value = lines[idx].strip().partition(":")
+        if sep and _dsh_yaml_key_value(key) == reference and value.strip():
+            return True
+    return False
+
+
+def _dsh_restore_headless_credentials(path, text, native, credentials_text):
+    """Restore the managed credential store in an existing headless profile.
+
+    DSH's shipped headless profile disables `.credentials.yaml`, so a provider
+    whose key is stored there otherwise fails with MISSING_CREDENTIAL. An
+    explicit user-authored credentials entry is always preserved.
+    """
+    if Path(path).parent.name != "headless":
+        return text or ""
+    reference = native.get("apiKeyEnv")
+    if not isinstance(reference, str) or not _dsh_credentials_has_ref(
+        credentials_text, reference
+    ):
+        return text or ""
+    if _dsh_has_entry(text, "credentials"):
+        return text or ""
+    prefix = text or ""
+    if prefix and not prefix.endswith("\n"):
+        prefix += "\n"
+    if prefix and not prefix.endswith("\n\n"):
+        prefix += "\n"
+    return prefix + "- id: credentials\n  disabled: false\n"
+
+
 def _dsh_validate_provider(provider_id, config):
     if (
         not provider_id
@@ -1066,8 +1226,31 @@ def _dsh_native_provider(provider_id, config, credentials_text):
             if "output" in limit:
                 model["maxTokens"] = limit["output"]
         modalities = model.pop("modalities", None)
-        if isinstance(modalities, dict) and "input" in modalities:
-            model["input"] = modalities["input"]
+        raw_input = (
+            modalities.get("input")
+            if isinstance(modalities, dict)
+            else None
+        )
+        if raw_input is None:
+            raw_input = model.pop("input", None)
+        else:
+            model.pop("input", None)
+        allowed_input = []
+        dropped_input = []
+        if isinstance(raw_input, list):
+            for value in raw_input:
+                if value in ("text", "image"):
+                    if value not in allowed_input:
+                        allowed_input.append(value)
+                else:
+                    dropped_input.append(value)
+        if dropped_input:
+            print(
+                f"[WARN] DSH model {model_id!r}: filtered unsupported input modalities "
+                f"{dropped_input!r}; DSH accepts only 'text' and 'image'"
+            )
+        if allowed_input:
+            model["input"] = allowed_input
         reasoning = model.pop("reasoning", None)
         if reasoning is False:
             model["reasoningEfforts"] = False
@@ -1326,7 +1509,8 @@ def cmd_dsh_provider_set(args):
     cc_home, db_path = resolve_paths(args)
     run_preflight(args, cc_home, db_path)
     _require_dsh_schema(db_path)
-    home = dsh_home(args)
+    home, home_source = resolve_dsh_home(args, cc_home=cc_home)
+    print(f"dsh_home: {home} ({home_source})")
     if _dsh_home_shadows_providers(home):
         raise SystemExit(
             f"DSH providers are shadowed by llm-pi-ai config in {home / 'cordis.patch.yml'}; "
@@ -1343,19 +1527,30 @@ def cmd_dsh_provider_set(args):
         args.provider_id, config, credentials_text
     )
     profiles = dsh_profile_paths(home)
-    blocks = {
-        path: _dsh_provider_block(_read_optional_text(path), args.provider_id)
-        for path in profiles
-    }
+    blocks = {}
+    for path in profiles:
+        try:
+            blocks[path] = _dsh_provider_block(
+                _read_optional_text(path), args.provider_id
+            )
+        except SystemExit as exc:
+            raise SystemExit(f"{path}: {exc}")
     distinct = {block for block in blocks.values() if block is not None}
     if len(distinct) > 1:
         raise SystemExit(
             "DSH profile copies of this provider differ; edit or repair them in DeepSeek Harness first"
         )
-    writes = {
-        path: _dsh_replace_provider(_read_optional_text(path), args.provider_id, native)
-        for path in profiles
-    }
+    writes = {}
+    for path in profiles:
+        try:
+            next_text = _dsh_replace_provider(
+                _read_optional_text(path), args.provider_id, native
+            )
+            writes[path] = _dsh_restore_headless_credentials(
+                path, next_text, native, credentials_text
+            )
+        except SystemExit as exc:
+            raise SystemExit(f"{path}: {exc}")
     for path in profiles:
         if _dsh_provider_block(writes[path], args.provider_id) is None:
             raise SystemExit(f"DSH provider projection verification failed for {path}")
@@ -1385,13 +1580,19 @@ def cmd_dsh_provider_remove(args):
     cc_home, db_path = resolve_paths(args)
     run_preflight(args, cc_home, db_path)
     _require_dsh_schema(db_path)
-    home = dsh_home(args)
+    home, home_source = resolve_dsh_home(args, cc_home=cc_home)
+    print(f"dsh_home: {home} ({home_source})")
     profiles = dsh_profile_paths(home)
-    originals = {path: _read_optional_text(path) for path in profiles}
-    blocks = {
-        path: _dsh_provider_block(text, args.provider_id)
-        for path, text in originals.items()
-    }
+    originals = {}
+    blocks = {}
+    for path in profiles:
+        try:
+            originals[path] = _read_optional_text(path)
+            blocks[path] = _dsh_provider_block(
+                originals[path], args.provider_id
+            )
+        except SystemExit as exc:
+            raise SystemExit(f"{path}: {exc}")
     distinct = {block for block in blocks.values() if block is not None}
     if len(distinct) > 1:
         raise SystemExit(
@@ -1403,10 +1604,12 @@ def cmd_dsh_provider_remove(args):
     credentials_text = _dsh_update_credential_ref(
         credentials_text, reference, remove=True
     )
-    writes = {
-        path: _dsh_replace_provider(text, args.provider_id, None)
-        for path, text in originals.items()
-    }
+    writes = {}
+    for path, text in originals.items():
+        try:
+            writes[path] = _dsh_replace_provider(text, args.provider_id, None)
+        except SystemExit as exc:
+            raise SystemExit(f"{path}: {exc}")
     for path in profiles:
         if _dsh_provider_block(writes[path], args.provider_id) is not None:
             raise SystemExit(f"DSH provider removal projection failed for {path}")
@@ -1632,6 +1835,11 @@ def cmd_doctor(args):
                     "requires auth.json."
                 )
 
+    dsh_dir, dsh_source = resolve_dsh_home(
+        args, cc_home=cc_home, strict_settings=False
+    )
+    print(f"dsh_home:   {dsh_dir}  source={dsh_source}")
+
     if common_config_removed(db_path):
         print(
             "common-config: removed in CC Switch 4.0 (schema v20) — "
@@ -1771,6 +1979,64 @@ def codex_config_path() -> Path:
     if env:
         return Path(env).expanduser() / "config.toml"
     return Path.home() / ".codex" / "config.toml"
+
+
+def codex_catalog_pointer_value(path):
+    """Return the CCS-owned catalog pointer form used by CC Switch 4.0.27+."""
+    config_path = Path(path)
+    catalog_path = config_path.parent / "cc-switch-model-catalog.json"
+    rendered = str(catalog_path)
+    is_unc = rendered.startswith(r"\\") or rendered.startswith("//")
+    if is_unc or not catalog_path.is_absolute():
+        return "cc-switch-model-catalog.json"
+    return rendered
+
+
+def codex_catalog_pointer_issues(text, path):
+    try:
+        data = tomllib.loads(text)
+    except Exception:
+        return []
+    actual = data.get("model_catalog_json")
+    if not isinstance(actual, str):
+        return []
+    if Path(actual).name != "cc-switch-model-catalog.json":
+        return []
+    expected = codex_catalog_pointer_value(path)
+    if expected == "cc-switch-model-catalog.json":
+        return []
+    if Path(actual).is_absolute():
+        return []
+    return [
+        "model_catalog_json is a bare filename; Codex 4.0.27+ custom-permission "
+        f"parsing needs an absolute native path (expected {expected!r})"
+    ]
+
+
+def repair_codex_catalog_pointer(text, path):
+    try:
+        data = tomllib.loads(text)
+    except Exception:
+        return text, []
+    actual = data.get("model_catalog_json")
+    if not isinstance(actual, str) or Path(actual).name != "cc-switch-model-catalog.json":
+        return text, []
+    expected = codex_catalog_pointer_value(path)
+    if expected == "cc-switch-model-catalog.json" or Path(actual).is_absolute():
+        return text, []
+    sections = parse_sections(text)
+    preamble = next((section for section in sections if section[0] is None), None)
+    if preamble is None:
+        return text, []
+    body, changed = _set_top_level_key(
+        preamble[3], "model_catalog_json", json.dumps(expected, ensure_ascii=False)
+    )
+    if not changed:
+        return text, []
+    preamble[3] = body
+    repaired = _join_sections(sections)
+    tomllib.loads(repaired)
+    return repaired, [f"model_catalog_json -> {expected}"]
 
 
 def _split_header(header):
@@ -1946,6 +2212,33 @@ def top_level_key_issues(text):
                 issues.append(
                     f"{key} (line {i + 1 + offset}) misplaced inside {header}: "
                     "top-level key must stay in the preamble before any [table]"
+                )
+    return issues
+
+
+def codex_provider_global_key_issues(text):
+    """Report client-global Codex keys that do not belong in provider cards."""
+    issues = []
+    for header, path, i, body in parse_sections(text):
+        for offset, line in enumerate(body):
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#") or "=" not in stripped:
+                continue
+            key = stripped.partition("=")[0].strip()
+            if path == ("agents",) and key == "max_threads":
+                issues.append(
+                    f"[agents].max_threads (line {i + 1 + offset}) is a Codex-global "
+                    "setting (CCS 4.0.25+), not a provider-card field; remove it from the "
+                    "provider and set it in the Codex live config / CCS provider form"
+                )
+            elif path is None and key in (
+                "agents.max_threads",
+                '"agents".max_threads',
+                'agents."max_threads"',
+            ):
+                issues.append(
+                    f"{key} (line {i + 1 + offset}) is a Codex-global setting "
+                    "(CCS 4.0.25+), not a provider-card field"
                 )
     return issues
 
@@ -2198,6 +2491,7 @@ def find_header_issues(text, is_provider_config=False, is_official=False, provid
     issues += header_order_issues(text)
     if is_provider_config:
         issues += live_only_issues(text)
+        issues += codex_provider_global_key_issues(text)
         issues += codex_0149_issues(text, is_official=is_official, provider_type=provider_type)
     return issues
 
@@ -2755,6 +3049,8 @@ def collect_structural_issues(
                 text = ""
             for iss in find_header_issues(text, is_provider_config=False):
                 issues.append(f"config.toml: {iss}")
+            for iss in codex_catalog_pointer_issues(text, cfg):
+                issues.append(f"config.toml: {iss}")
             if "mcp-type" in targets:
                 for iss in codex_mcp_type_issues(text):
                     issues.append(f"config.toml: {iss}")
@@ -3030,6 +3326,8 @@ def cmd_repair(args):
     target = args.target
     if target == "provider":
         _reject_structured_provider_edit(getattr(args, "app_type", None))
+    if mode == "codex-catalog-path" and target != "config.toml":
+        raise SystemExit("--mode codex-catalog-path only applies to --target config.toml")
 
     if target == "config.toml":
         path = codex_config_path()
@@ -3039,6 +3337,7 @@ def cmd_repair(args):
         removed = []
         c149 = []
         mcp_type = []
+        catalog_pointer = []
         if mode in ("header-order", "both"):
             new_text, moved = repair_header_order(new_text)
         if mode == "live-only":
@@ -3047,6 +3346,8 @@ def cmd_repair(args):
             new_text, c149 = repair_codex_0149(new_text)
         if mode == "mcp-type":
             new_text, mcp_type = repair_mcp_type(new_text)
+        if mode == "codex-catalog-path":
+            new_text, catalog_pointer = repair_codex_catalog_pointer(new_text, path)
         if mode == "codex-key":
             print("  codex-key: only applies to --target provider (the key lives in the provider row)")
         changed = new_text != text
@@ -3059,9 +3360,11 @@ def cmd_repair(args):
             print("  codex-0149:", "; ".join(c149[:30]))
         if mcp_type:
             print("  mcp-type:", "; ".join(mcp_type[:10]))
+        if catalog_pointer:
+            print("  codex-catalog-path:", "; ".join(catalog_pointer[:10]))
         if changed and apply:
             backup_file(path, "repair")
-            path.write_text(new_text, encoding="utf-8")
+            _atomic_write_text(path, new_text)
             print("  backup + applied")
         return
 
@@ -3319,7 +3622,7 @@ def build_parser():
     k = sub.add_parser("skill-upsert")
     k.add_argument("--name", required=True)
     k.add_argument("--directory")
-    k.add_argument("--description", default="")
+    k.add_argument("--description")
     k.add_argument("--description-file")
     k.add_argument("--content-hash")
     add_bool_flags(k)
@@ -3410,10 +3713,14 @@ def build_parser():
     rp.add_argument("--target", required=True, choices=("config.toml", "provider", "common"))
     rp.add_argument(
         "--mode",
-        choices=("header-order", "live-only", "both", "codex-0149", "codex-key", "mcp-type"),
+        choices=(
+            "header-order", "live-only", "both", "codex-0149", "codex-key",
+            "mcp-type", "codex-catalog-path",
+        ),
         default="both",
         help="codex-key restores auth.OPENAI_API_KEY (provider target only); mcp-type strips "
-             "type/timeout/autoApprove lines that Codex rejects",
+             "type/timeout/autoApprove lines that Codex rejects; codex-catalog-path makes "
+             "the CCS-owned live catalog pointer absolute for native Codex config dirs",
     )
     rp.add_argument("--apply", action="store_true", help="write changes (with automatic backup)")
     rp.add_argument("--provider-id")

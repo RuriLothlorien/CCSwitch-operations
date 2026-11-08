@@ -32,7 +32,7 @@ cp "$CC_HOME/cc-switch.db" "$CC_HOME/backups/db_backup_$stamp.db"
 PowerShell：
 ```powershell
 Get-Process -Name 'cc-switch' -ErrorAction SilentlyContinue | Stop-Process -Force
-Start-Process -FilePath (Join-Path $env:LOCALAPPDATA 'Programs\CC Switch\cc-switch.exe') -WindowStyle Hidden
+Start-Process -FilePath '<CC Switch executable path>' -WindowStyle Hidden
 ```
 
 bash / macOS：
@@ -87,7 +87,7 @@ python $S prompt-set --app-type codex --content-file prompts_codex.txt
 python $S skill-upsert --name my-skill --description "我的技能" --enable-codex
 ```
 
-编辑本地 `SKILL.md` 后必须重跑一次刷新 `content_hash`；repo 安装的 skill（`repo_owner` 非空）不要手改；Pi 没有 DB 开关（存在即启用）。
+编辑本地 skill 后必须重跑一次刷新 `content_hash`；工具按 CCS 4.0.27 的完整目录语义计算，并忽略隐藏文件、`__pycache__/`、`*.pyc`。repo 安装的 skill（`repo_owner` 非空）不要手改；Pi 没有 DB 开关（存在即启用）。
 
 ### 供应商 config 文本
 
@@ -114,7 +114,7 @@ python scripts/ccs_db.py provider-set-key --app-type codex --key mcp_servers.foo
 python scripts/ccs_db.py provider-set-key --app-type codex --key web_search --remove
 ```
 
-`--value` 是 TOML 字面量（字符串需带引号，PowerShell 下用单引号包裹整个参数）。该命令会自动跑 preflight 并校验 TOML。
+`--value` 是 TOML 字面量（字符串需带引号，PowerShell 下用单引号包裹整个参数）。该命令会自动跑 preflight 并校验 TOML。`[agents].max_threads` 是 CCS 4.0.25+ 的 Codex 全局设置，不属于 provider card；`check --strict` 会拦截，应该在 Codex live 配置或 CCS 供应商表单里设置。
 
 ### 只切启用标志
 
@@ -195,6 +195,7 @@ python scripts/ccs_db.py diff <snapshot-dir>
 
 # 修复（默认 dry-run，--apply 写入并自动备份）
 python scripts/ccs_db.py repair --target config.toml --mode header-order
+python scripts/ccs_db.py repair --target config.toml --mode codex-catalog-path
 python scripts/ccs_db.py repair --target provider --provider-id <id> --mode live-only --apply
 python scripts/ccs_db.py repair --target common --mode both --apply
 
@@ -203,7 +204,14 @@ python scripts/ccs_db.py provider-block --app-type codex \
   --section "[mcp_servers.foo]" --block-file block.toml --replace --check-semantics
 ```
 
-`check --strict` 也会检测**顶层键被挪进表内**（如 `notify = [...]` 出现在某个 `[table]` 之后/内部）；`repair --mode header-order` 会自动把这类顶层键移回 preamble（所有 `[table]` 之前）。
+`check --strict` 也会检测**顶层键被挪进表内**（如 `notify = [...]` 出现在某个 `[table]` 之后/内部）；`repair --mode header-order` 会自动把这类顶层键移回 preamble（所有 `[table]` 之前）。它还会检测 provider card 中违规出现的 `[agents].max_threads`，以及原生 Codex 配置目录中的相对 `model_catalog_json`；后者的 dry-run 与写入模板为：
+
+```bash
+python scripts/ccs_db.py repair --target config.toml --mode codex-catalog-path
+python scripts/ccs_db.py repair --target config.toml --mode codex-catalog-path --apply
+```
+
+嵌套修复会遵守 CCS 4.0.27 规则：普通本地配置目录写绝对路径；WSL/UNC 配置目录保留 `cc-switch-model-catalog.json` 裸文件名。
 
 ### Codex 0.149 config-only 兼容（3.20.1+，含 3.20.2 flag 规则与 3.20.3 路由语义）
 
@@ -293,20 +301,25 @@ python scripts/ccs_db.py mcp-upsert --name my-server --config-file server_config
 python scripts/ccs_db.py skill-upsert --name my-skill --enable-dsh
 ```
 
-`dsh-provider-set` 的 JSON 使用 CCS 编辑器形态：`name`、`api`（`openai-completions` / `openai-responses` / `anthropic-messages`）、`options.baseURL`、`options.apiKey`/`apiKeyEnv`、`models`。命令会拒绝 profile 副本不一致、flow YAML、anchors/tags，并以事务方式更新 web/desktop 与已存在的 headless/acp `cordis.patch.yml`、`.credentials.yaml` 和 DB 行。`DSH_HOME` 可覆盖 `~/.dsh`。
+`dsh-provider-set` 的 JSON 使用 CCS 编辑器形态：`name`、`api`（`openai-completions` / `openai-responses` / `anthropic-messages`）、`options.baseURL`、`options.apiKey`/`apiKeyEnv`、`models`。命令会拒绝 profile 副本不一致、flow YAML、anchors/tags，并以事务方式更新 web/desktop 与已存在的 headless/acp `cordis.patch.yml`、`.credentials.yaml` 和 DB 行。
+
+DSH 目录解析顺序：`--dsh-home` → CCS 4.0.26+ `settings.json:dshConfigDir` → `DSH_HOME` → `~/.dsh`。模型 `modalities.input` 只保留 `text`/`image`，其他值会打印告警并过滤。headless profile 使用 `.credentials.yaml` 中的 Key 时，会自动补 `- id: credentials` / `disabled: false`；若用户已显式写 `credentials` 条目则原样保留。profile 解析错误会带具体文件路径。
 
 可直接从 `references/examples/dsh-provider.json` 复制模板；示例中不含真实凭据。
 
-### CC Switch 4.0.23 升级后复核
+### CC Switch 4.0.27 升级后复核
 
 ```bash
 python scripts/ccs_db.py doctor                                    # schema v24 + 14 应用 + 标志列 + 模式/安全告警
 python scripts/ccs_db.py check --strict
 python scripts/ccs_db.py doctor --audit
 python scripts/ccs_db.py repair --target config.toml --mode mcp-type    # dry-run：清 type/timeout/autoApprove
+python scripts/ccs_db.py repair --target config.toml --mode codex-catalog-path  # dry-run：相对目录指针
 ```
 
-要点：4.0.20 升 v23（`enabled_omp`），4.0.22 升 v24（`enabled_dsh` + `parser_state`）；运行过 4.0.22 后旧版 CCS 会拒绝打开。Codex MCP 旧 live 配置可用 `repair --mode mcp-type` 清理 `type`、`timeout`、`autoApprove`。Codex 模型目录/会话分组的修复要切换一次供应商才生效；`common-config` 已移除。Claude Desktop 从 4.0.13 起支持直连/路由/聚合；跨供应商 Codex 子代理开关是 `codexStackClassicTools`。`doctor` 警告 `preserveCodexOfficialAuthOnSwitch` 未开启时，若使用依赖 `auth.json` 的 Codex 构建，应在 CCS 设置中打开。
+要点：4.0.24–4.0.27 无 schema 迁移，仍为 v24；4.0.20 升 v23（`enabled_omp`），4.0.22 升 v24（`enabled_dsh` + `parser_state`）。Codex MCP 旧 live 配置可用 `repair --mode mcp-type` 清理 `type`、`timeout`、`autoApprove`。`common-config` 已移除。Claude Desktop 从 4.0.13 起支持直连/路由/聚合；跨供应商 Codex 子代理开关是 `codexStackClassicTools`。`doctor` 警告 `preserveCodexOfficialAuthOnSwitch` 未开启时，若使用依赖 `auth.json` 的 Codex 构建，应在 CCS 设置中打开。
+
+4.0.25+ 的 MCP 连通性检查会实际握手或启动本地命令，和 `doctor --audit` 的结构一致性不是一回事；本技能不会为了“验证”而执行未知 MCP。4.0.27+ 配置和 Skill 写入支持软链接；本技能的事务写入同样保留链接。
 
 ### MCP `type` 与 Pi 同步（4.0）
 
