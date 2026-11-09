@@ -2,7 +2,7 @@
 
 只记录 CC Switch 官方版本带来的行为变化；不包含任何用户/环境相关说明。
 
-## 4.0（正式版 4.0.4，2026-10-06；含 4.0.5–4.0.27 修复）
+## 4.0（正式版 4.0.4，2026-10-06；含 4.0.5–4.0.28 修复）
 
 - **数据库迁移 v19 → v20**：`mcp_servers` 新增 `enabled_pi`（MCP 同步到 Pi 1.0）。首次启动自动迁移并尝试备份到 `<cc-home>/backups/`；运行过 4.0 后 3.x 会以“数据库版本过新”拒绝打开。
 - **配置写入重写（#6719 修复）**：供应商编辑页保存只替换地址、Key、模型等关键字段，其余内容（顶层键、`[plugins]`/`[projects]`/`[mcp_servers.*]`、注释、`# >>> … <<<` 标记）逐字节保留；零改动保存与保存前逐字节一致；不再剥离/合并通用配置；url-only 远程 MCP 不再写成空 `command`，Codex 的 `[mcp_servers.*]` 不再写 `type`。**已损坏的存量条目不会自动修**：在 MCP 面板把服务器关掉再打开重写，或用本技能 `check --strict` / `repair` / `mcp-upsert`。
@@ -27,7 +27,8 @@
 - **4.0.25**：MCP 页面新增实际连通性测试；Codex `[agents].max_threads` 作为客户端全局设置写入 live 并跨供应商保留；本地路由拒绝带浏览器来源标记的请求。MCP 连通性不是数据库结构一致性，`doctor --audit` 不会启动未知 MCP 进程；Windows 终端优先使用已安装的 PowerShell 7。无 schema 迁移。
 - **4.0.26**：DSH 新增配置目录（`dshConfigDir`，可指向 WSL/UNC），解析顺序先于 `DSH_HOME`；headless profile 使用存放的 Key 时恢复 credentials store；一键导入扩展到 Claude Desktop、MiniMax、Kimi、DSH、OMP。Codex 卡片可保留官方 Fast 档（Responses 上游下按 `service_tier=priority`）。schema 仍为 v24。
 - **4.0.27**：配置文件是软链接时写真实目标，不再替换链接或在 Windows 报锁文件错误；Skill 更新哈希忽略 `__pycache__/`、`*.pyc` 和隐藏文件；原生 Codex 配置目录的 CCS 自有 `model_catalog_json` 改为绝对路径，WSL/UNC 目录保留裸文件名；DSH profile YAML 错误带上具体文件路径。无 schema 迁移。
-- **升级须知**：升级前建议手动再备份一次；Codex 模型目录/会话分组的修复要等下一次写入；已有 MCP 配置重新同步一次；运行过 4.0.22 后数据库为 v24，旧版 CCS 会拒绝打开。支持 Agy/Kimi 完整标志需 v1.4.0+；支持 OMP/DSH 与 schema v24 需 v1.5.0+；对齐 4.0.24–4.0.27 的软链接、DSH 和哈希语义需 v1.5.1+。
+- **4.0.28**：适配 Codex 0.167 的会话分桶。直连模式下官方与第三方会话不再是可续接的同一组，除非统一历史；路由/聚合在有 ChatGPT 登录且未统一历史时把第三方路由保留在内置 `openai` 桶（顶层 `openai_base_url` 指向本地路由，凭据由路由替换）。新增暂停官方登录（仅 route/stack）、持续迁入旧官方会话、官方额度保护一次性默认开启；`disable_response_storage` 从预设/模板/投影中移除，旧 live 行在下一次切换时清理。数据库 schema 仍为 v24，`schema.rs` 的改动只是把首次建表和内置价格写入合并到 savepoint 以加快 Windows 首次启动。
+- **升级须知**：升级前建议手动再备份一次；Codex 模型目录/会话分组的修复要等下一次写入；已有 MCP 配置重新同步一次；运行过 4.0.22 后数据库为 v24，旧版 CCS 会拒绝打开。支持 Agy/Kimi 完整标志需 v1.4.0+；支持 OMP/DSH 与 schema v24 需 v1.5.0+；对齐 4.0.24–4.0.27 的软链接、DSH 和哈希语义需 v1.5.1+；对齐 4.0.28 / Codex 0.167 的会话诊断、本地路由识别和废弃键修复需 v1.5.2+。
 
 ## 3.20.4（2026-09-22）
 

@@ -1,6 +1,6 @@
 # CC Switch 架构速查
 
-## 数据库 `<cc-home>/cc-switch.db`（CCS 4.0.22–4.0.27 = schema v24；4.0.20–4.0.21 = v23；4.0.19 = v22；4.0.18 = v21；4.0.16–4.0.17 = v20；CCS 3.20.4 = v19；3.20.1–3.20.3 = v18；3.20.0 = v17）
+## 数据库 `<cc-home>/cc-switch.db`（CCS 4.0.22–4.0.28 = schema v24；4.0.20–4.0.21 = v23；4.0.19 = v22；4.0.18 = v21；4.0.16–4.0.17 = v20；CCS 3.20.4 = v19；3.20.1–3.20.3 = v18；3.20.0 = v17）
 
 `cc-home` 解析顺序：`CC_SWITCH_HOME` 环境变量 → `~/.cc-switch`。
 
@@ -22,7 +22,8 @@
 
 - `currentProviderCodex` / `currentProviderClaude` / `currentProviderClaudeDesktop`（启用 Gemini 后还有 `currentProviderGemini`）——`ccs_db.py` 从这里 + `providers.is_current` 动态解析供应商 ID。
 - `skillSyncMethod`: `auto`（默认，优先 symlink、失败回退 copy）/ `symlink` / `copy`；`skillStorageLocation`: `cc_switch`（默认，源在 `<cc-home>/skills`）/ `unified`。
-- 其他：`visibleApps`、`enableLocalProxy`、`enableFailoverToggle`、`preserveCodexOfficialAuthOnSwitch`、`unifyCodexSessionHistory`、`codexStackClassicTools`、`enableClaudePluginIntegration`、`preferredTerminal` 等。4.0.15 会在读取到截断/BOM/尾部损坏时先备份 `settings.json.broken-<time>.bak`，再尽力保留可解析字段；`doctor` 对无法解析的文件给出告警。
+- 其他：`visibleApps`、`enableLocalProxy`、`enableFailoverToggle`、`preserveCodexOfficialAuthOnSwitch`、`codexQuotaProtection`、`codexProxyWithoutOfficialLogin`、`unifyCodexSessionHistory`、`unifyCodexMigrateExisting`、`codexStackClassicTools`、`enableClaudePluginIntegration`、`preferredTerminal` 等。4.0.15 会在读取到截断/BOM/尾部损坏时先备份 `settings.json.broken-<time>.bak`，再尽力保留可解析字段；`doctor` 对无法解析的文件给出告警。
+- `codexQuotaProtection` 在 4.0.28 改为默认开启一次：若 `localMigrations.codexQuotaProtectionDefaultOnV1` 不存在，运行时使用 `enabled=true`，即使旧 `settings.json` 仍写着 false；下一次保存才把迁移标记和值写入磁盘。`doctor` 显示运行时有效值。
 - `dshConfigDir`：DeepSeek Harness 主目录覆盖（4.0.26+，也可填 WSL/UNC 路径）。解析顺序是 CCS 设置 → `DSH_HOME` → `~/.dsh`；本技能的 `--dsh-home` 是对全部三者的显式覆盖。
 
 ## 生效链路
@@ -46,12 +47,15 @@
 - **配置写入（4.0 重写，4.0.27 软链接修复）**：切供应商只替换地址/Key/模型等关键字段，其余 live 内容（顶层键、`[plugins]`/`[projects]`、`[mcp_servers.*]`、注释、标记）逐字节保留；供应商编辑器的“切换后预览”由 `editor_view` 投影生成，不再做整文 parse→stringify。配置文件是文件软链接时，4.0.27 会写链接目标并保留链接；本技能的 DSH/修复写入遵循同一规则。
 - **Codex 全局键（4.0.25+）**：`[agents].max_threads` 属于客户端全局设置，保存到 live `config.toml` 并跨供应商切换保留，不属于 provider card；不要用 `provider-set-key agents.max_threads` 写入卡片。
 - **Codex 模型目录指针（4.0.27）**：CCS 自有 `model_catalog_json` 在原生本地配置目录中写绝对路径，避免新版 Codex 在重读自定义权限时拒绝裸文件名；WSL/UNC 配置目录继续使用裸文件名。`check --strict` 会报告原生目录中的相对形态。
+- **Codex 0.167 会话分组与路由（4.0.28）**：会话按 provider id 分桶。直连模式未统一历史时，官方（内置 `openai`）与第三方（`custom`）互相切换后，另一组只读。路由/聚合在有 ChatGPT 登录且未开统一历史时，可把第三方路由保留在 `openai` 桶：live 不写 `model_provider`，而写顶层 `openai_base_url` 指向 CCS 本地路由，凭据由路由替换。统一历史开启、暂停官方登录、无 ChatGPT 登录或供应商需要 client-only 设置时仍使用 `custom` 表。
+- **暂停官方登录（4.0.28）**：`codexProxyWithoutOfficialLogin=true` 仅对路由/聚合生效，写入 `requires_openai_auth=false` 的 custom 表，官方登录仍保留在 `auth.json`；关闭或从直连切回后需要彻底重启 Codex。
+- **Codex 0.167 废弃键**：`disable_response_storage` 不再被识别。CCS 4.0.28 不再投影该键，并在下次 live 写入时删除旧行；本技能 `check --strict` 检测、`repair --mode codex-0167` 清理。
 - **通用配置片段（4.0 移除）**：`settings.common_config_*` 与 `providers.meta.common_config_enabled` 只是升级遗留，4.0 不再读取；共享设置应直接写在客户端 live 配置里。
 - **Pi MCP（4.0）**：Pi 1.0 内置 MCP，配置在 `~/.pi/agent/mcp.json`（`enabled_pi`）；只写连接字段，关同步=停用不删条目。
 - **Codex 会话压缩（4.0.7）**：开关直接改 `config.toml`，写入 `[features] local_thread_store_compression = true`；Codex 启动时把 7 天以上没动过的会话压成同名 `.jsonl.zst`（CCS 不另存该设置；直接读 `.jsonl` 的第三方工具可能读不到压缩会话）。
 - **恢复 `.db` 备份（3.20 行为变化）**：恢复后会按新库**重写所有受管应用的 live 配置（Pi 除外）**，而旧版只改数据库——恢复后仍需复核 MCP 三处一致。
 
-## 受管应用（CCS 4.0.27 共 14 个）与 Skills 目录
+## 受管应用（CCS 4.0.28 共 14 个）与 Skills 目录
 
 见 references/apps.md 的完整矩阵。
 

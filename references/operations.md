@@ -196,6 +196,7 @@ python scripts/ccs_db.py diff <snapshot-dir>
 # 修复（默认 dry-run，--apply 写入并自动备份）
 python scripts/ccs_db.py repair --target config.toml --mode header-order
 python scripts/ccs_db.py repair --target config.toml --mode codex-catalog-path
+python scripts/ccs_db.py repair --target config.toml --mode codex-0167
 python scripts/ccs_db.py repair --target provider --provider-id <id> --mode live-only --apply
 python scripts/ccs_db.py repair --target common --mode both --apply
 
@@ -212,6 +213,13 @@ python scripts/ccs_db.py repair --target config.toml --mode codex-catalog-path -
 ```
 
 嵌套修复会遵守 CCS 4.0.27 规则：普通本地配置目录写绝对路径；WSL/UNC 配置目录保留 `cc-switch-model-catalog.json` 裸文件名。
+
+Codex 0.167 不再识别 `disable_response_storage`。provider 或 live 配置中存在该键时，`check --strict` 会失败；修复模板：
+
+```bash
+python scripts/ccs_db.py repair --target config.toml --mode codex-0167
+python scripts/ccs_db.py repair --target provider --provider-id <id> --mode codex-0167 --apply
+```
 
 ### Codex 0.149 config-only 兼容（3.20.1+，含 3.20.2 flag 规则与 3.20.3 路由语义）
 
@@ -307,7 +315,7 @@ DSH 目录解析顺序：`--dsh-home` → CCS 4.0.26+ `settings.json:dshConfigDi
 
 可直接从 `references/examples/dsh-provider.json` 复制模板；示例中不含真实凭据。
 
-### CC Switch 4.0.27 升级后复核
+### CC Switch 4.0.28 升级后复核
 
 ```bash
 python scripts/ccs_db.py doctor                                    # schema v24 + 14 应用 + 标志列 + 模式/安全告警
@@ -315,11 +323,19 @@ python scripts/ccs_db.py check --strict
 python scripts/ccs_db.py doctor --audit
 python scripts/ccs_db.py repair --target config.toml --mode mcp-type    # dry-run：清 type/timeout/autoApprove
 python scripts/ccs_db.py repair --target config.toml --mode codex-catalog-path  # dry-run：相对目录指针
+python scripts/ccs_db.py repair --target config.toml --mode codex-0167  # dry-run：Codex 0.167 废弃键
 ```
 
-要点：4.0.24–4.0.27 无 schema 迁移，仍为 v24；4.0.20 升 v23（`enabled_omp`），4.0.22 升 v24（`enabled_dsh` + `parser_state`）。Codex MCP 旧 live 配置可用 `repair --mode mcp-type` 清理 `type`、`timeout`、`autoApprove`。`common-config` 已移除。Claude Desktop 从 4.0.13 起支持直连/路由/聚合；跨供应商 Codex 子代理开关是 `codexStackClassicTools`。`doctor` 警告 `preserveCodexOfficialAuthOnSwitch` 未开启时，若使用依赖 `auth.json` 的 Codex 构建，应在 CCS 设置中打开。
+要点：4.0.24–4.0.28 无 schema 迁移，仍为 v24；4.0.20 升 v23（`enabled_omp`），4.0.22 升 v24（`enabled_dsh` + `parser_state`）。Codex MCP 旧 live 配置可用 `repair --mode mcp-type` 清理 `type`、`timeout`、`autoApprove`。`common-config` 已移除。Claude Desktop 从 4.0.13 起支持直连/路由/聚合；跨供应商 Codex 子代理开关是 `codexStackClassicTools`。`doctor` 警告 `preserveCodexOfficialAuthOnSwitch` 未开启时，若使用依赖 `auth.json` 的 Codex 构建，应在 CCS 设置中打开。
 
 4.0.25+ 的 MCP 连通性检查会实际握手或启动本地命令，和 `doctor --audit` 的结构一致性不是一回事；本技能不会为了“验证”而执行未知 MCP。4.0.27+ 配置和 Skill 写入支持软链接；本技能的事务写入同样保留链接。
+
+4.0.28 重点：
+
+- **会话组**：Codex 0.167+ 的官方与第三方会话按 provider id 分组。直连且 `unifyCodexSessionHistory=false` 时，切换后另一组只读；路由/聚合通常保留在 `openai` 组。`doctor` 会打印并告警。
+- **暂停官方登录**：`codexProxyWithoutOfficialLogin` 只在路由/聚合生效，切换后需彻底重启 Codex；直连下开启无效。
+- **额度保护**：`codexQuotaProtection.enabled` 在 4.0.28 读入时默认开启一次；在迁移标记 `codexQuotaProtectionDefaultOnV1` 落盘前，旧文件里的 false 不是最终有效值。
+- **本地路由形态**：top-level `openai_base_url=http://127.0.0.1:<port>/v1` 且无 bearer 时，可能是 4.0.28 的合法会话分组契约；`codex-0149` 会识别并保持，不要强行迁成 custom 表。
 
 ### MCP `type` 与 Pi 同步（4.0）
 

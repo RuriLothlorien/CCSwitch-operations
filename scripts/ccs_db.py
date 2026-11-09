@@ -25,8 +25,10 @@ Subcommands:
                   are judged by the 3.20.2 flag rule; a Codex card whose stored
                   API key was wiped by CCS #7434 is reported when it can be
                   restored from the provider table; Codex-invalid MCP keys
-                  type/timeout/autoApprove are reported)
-  doctor          print resolved paths, schema, and per-app provider status
+                  type/timeout/autoApprove and the Codex 0.167-obsolete
+                  disable_response_storage key are reported)
+  doctor          print resolved paths, schema, per-app provider status,
+                  Codex session grouping/auth settings and effective quota guard
   doctor --audit  read-only three-way consistency audit
   doctor --compare-backup <db>  diff current DB against a backup
   snapshot        save a point-in-time snapshot (DB + config.toml + settings + live-state)
@@ -36,7 +38,8 @@ Subcommands:
                   a routable provider table and flips requires_openai_auth on
                   proxy OAuth cards; codex-key restores auth.OPENAI_API_KEY from
                   the provider table's experimental_bearer_token; mcp-type strips
-                  type/timeout/autoApprove lines that Codex rejects)
+                  type/timeout/autoApprove lines that Codex rejects; codex-0167
+                  removes settings removed by Codex 0.167)
   common-config   get/set/check/extract/set-key/remove-key/status/enable/disable
 
 Safety model:
@@ -55,6 +58,7 @@ via UTF-8 files (--*-file) for large/sensitive content.
 
 import argparse
 import hashlib
+import ipaddress
 import json
 import os
 import re
@@ -1765,6 +1769,12 @@ def cmd_doctor(args):
     cc_home, db_path = resolve_paths(args)
     skills_root = cc_home / "skills"
     settings_file = cc_home / "settings.json"
+    codex_unified_history = None
+    codex_migrate_existing = None
+    codex_pause_official = None
+    codex_quota_effective = None
+    codex_quota_pending = None
+    codex_mode = None
     print(f"cc_home:    {cc_home}")
     print(f"db:         {db_path}  exists={db_path.exists()}")
     print(f"skills_dir: {skills_root}  exists={skills_root.exists()}")
@@ -1834,6 +1844,41 @@ def cmd_doctor(args):
                     "builds then fall back to the login screen; enable this guard if that build "
                     "requires auth.json."
                 )
+            codex_unified_history = bool(
+                settings_obj.get("unifyCodexSessionHistory", False)
+            )
+            codex_migrate_existing = bool(
+                settings_obj.get("unifyCodexMigrateExisting", False)
+            )
+            codex_pause_official = bool(
+                settings_obj.get("codexProxyWithoutOfficialLogin", False)
+            )
+            quota = settings_obj.get("codexQuotaProtection")
+            quota = quota if isinstance(quota, dict) else {}
+            migrations = settings_obj.get("localMigrations")
+            migrations = migrations if isinstance(migrations, dict) else {}
+            quota_migrated = (
+                migrations.get("codexQuotaProtectionDefaultOnV1") is not None
+            )
+            raw_quota_enabled = quota.get("enabled") is True
+            codex_quota_effective = raw_quota_enabled if quota_migrated else True
+            codex_quota_pending = not quota_migrated
+            five_hour = quota.get("fiveHourThreshold", 95)
+            weekly = quota.get("weeklyThreshold", 98)
+            history_state = (
+                "unified"
+                if codex_unified_history
+                else "split"
+            )
+            print(
+                "codex session/auth: "
+                f"history={history_state} "
+                f"migrate_existing={str(codex_migrate_existing).lower()} "
+                f"pause_official={str(codex_pause_official).lower()} "
+                f"quota_protection={'on' if codex_quota_effective else 'off'}"
+                f"{' (pending default-on)' if codex_quota_pending else ''} "
+                f"thresholds={five_hour}/{weekly}"
+            )
 
     dsh_dir, dsh_source = resolve_dsh_home(
         args, cc_home=cc_home, strict_settings=False
@@ -1877,9 +1922,26 @@ def cmd_doctor(args):
                 mode = "stack"
             else:
                 mode = str(raw_mode)
+            if app == "codex":
+                codex_mode = mode
             modes.append(f"{app}={mode}")
         if modes:
             print("modes (live-state.json):", " ".join(modes))
+
+    if settings_obj is not None and codex_mode:
+        if codex_mode == "direct" and not codex_unified_history:
+            print(
+                "[warn] Codex direct mode with unified session history off: "
+                "Codex 0.167+ keeps official and third-party sessions in separate "
+                "provider buckets; sessions from the inactive group are read-only. "
+                "Use route/stack mode or enable unifyCodexSessionHistory if sessions "
+                "must resume across providers."
+            )
+        if codex_pause_official and codex_mode not in ("route", "stack"):
+            print(
+                "[warn] codexProxyWithoutOfficialLogin is enabled but Codex is not "
+                "in route/stack mode; the switch has no effect in direct mode."
+            )
 
     issues = collect_structural_issues(cc_home, db_path)
     if issues:
@@ -1952,6 +2014,13 @@ TOP_LEVEL_ONLY_KEYS = (
     "notify", "model_instructions_file",
 )
 
+CODEX_OBSOLETE_TOP_LEVEL_KEYS = {
+    "disable_response_storage": (
+        "Codex 0.167 removed this setting; keeping it triggers an "
+        "'unrecognized configuration setting' warning on every session"
+    ),
+}
+
 CODEX_LEGACY_RESERVED_IDS = {"openai", "ollama", "lmstudio"}
 CODEX_RESERVED_BEDROCK_ID = "amazon-bedrock-runtime"
 # Codex 0.148/0.149 built-in provider ids (upstream
@@ -1979,6 +2048,42 @@ def codex_config_path() -> Path:
     if env:
         return Path(env).expanduser() / "config.toml"
     return Path.home() / ".codex" / "config.toml"
+
+
+def _is_local_router_url(raw):
+    """True for an HTTP(S) URL that can identify CC Switch's local router."""
+    if not isinstance(raw, str):
+        return False
+    parsed = urlparse(raw)
+    host = (parsed.hostname or "").strip().lower()
+    if parsed.scheme not in ("http", "https") or not host:
+        return False
+    if host in ("localhost", "host.docker.internal", "gateway.docker.internal"):
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
+
+
+def codex_obsolete_key_issues(text):
+    """Report top-level Codex settings that current Codex versions reject."""
+    issues = []
+    for header, path, i, body in parse_sections(text):
+        if path is not None:
+            continue
+        for offset, line in enumerate(body):
+            stripped = line.strip()
+            if not stripped or stripped.startswith("#") or "=" not in stripped:
+                continue
+            key = stripped.partition("=")[0].strip()
+            reason = CODEX_OBSOLETE_TOP_LEVEL_KEYS.get(key)
+            if reason:
+                issues.append(
+                    f"{key} (line {i + 1 + offset}) is obsolete: {reason}; "
+                    "run 'repair --mode codex-0167'"
+                )
+    return issues
 
 
 def codex_catalog_pointer_value(path):
@@ -2385,6 +2490,7 @@ def codex_0149_issues(text, is_official=False, provider_type=None):
             top = _body_map(body)
 
     selector = _active_provider_id(top)
+    parsed_top = _parsed_toml(text)
     provider_tables = [
         (header, path, body)
         for header, path, _, body in sections
@@ -2402,6 +2508,11 @@ def codex_0149_issues(text, is_official=False, provider_type=None):
                 "base_url + experimental_bearer_token): Codex 0.149 ignores the "
                 "top-level token — run 'repair --target provider --mode codex-0149 --apply'"
             )
+        elif _is_local_router_url(parsed_top.get("openai_base_url")):
+            # CC Switch 4.0.28 may intentionally keep third-party routing on
+            # the built-in openai provider so the session stays in the ChatGPT
+            # provider bucket. The local router replaces the credential.
+            pass
         else:
             issues.append(
                 "top-level openai_base_url legacy reroute has no own key; not "
@@ -2490,6 +2601,7 @@ def find_header_issues(text, is_provider_config=False, is_official=False, provid
     issues += top_level_key_issues(text)
     issues += header_order_issues(text)
     if is_provider_config:
+        issues += codex_obsolete_key_issues(text)
         issues += live_only_issues(text)
         issues += codex_provider_global_key_issues(text)
         issues += codex_0149_issues(text, is_official=is_official, provider_type=provider_type)
@@ -2701,6 +2813,37 @@ def repair_mcp_type(text):
     ]
 
 
+def repair_codex_obsolete_keys(text):
+    """Remove top-level settings Codex 0.167 no longer recognizes."""
+    sections = parse_sections(text)
+    removed = []
+    changed = False
+    for section in sections:
+        if section[0] is not None:
+            continue
+        kept = []
+        for line in section[3]:
+            stripped = line.strip()
+            key = (
+                stripped.partition("=")[0].strip()
+                if stripped and not stripped.startswith("#") and "=" in stripped
+                else ""
+            )
+            if key in CODEX_OBSOLETE_TOP_LEVEL_KEYS:
+                removed.append(key)
+                changed = True
+                continue
+            kept.append(line)
+        section[3] = kept
+    if not changed:
+        return text, []
+    repaired = _join_sections(sections)
+    tomllib.loads(repaired)
+    return repaired, [
+        "removed obsolete Codex 0.167 setting(s): " + ", ".join(removed)
+    ]
+
+
 def repair_codex_0149(text, provider_type=None):
     """Migrate Codex CLI 0.149-rejected or mis-routed shapes in a provider config.
 
@@ -2784,10 +2927,18 @@ def repair_codex_0149(text, provider_type=None):
     if "openai_base_url" in top and (selector_after is None or selector_after == "openai"):
         token = top.get("experimental_bearer_token")
         if not token:
-            notes.append(
-                "top-level openai_base_url has no own key; not auto-migrated "
-                "(add a key or a [model_providers.*] table)"
-            )
+            base_value = _parsed_toml(text).get("openai_base_url")
+            if _is_local_router_url(base_value):
+                notes.append(
+                    "recognized CC Switch 4.0.28 local-route contract: built-in "
+                    "openai is intentionally redirected to the local router; "
+                    "kept unchanged (auth.json remains the login)"
+                )
+            else:
+                notes.append(
+                    "top-level openai_base_url has no own key; not auto-migrated "
+                    "(add a key or a [model_providers.*] table)"
+                )
         else:
             new_id = _first_free_provider_id("cc-switch", known_ids)
             parsed_top = _parsed_toml(text)
@@ -3048,6 +3199,8 @@ def collect_structural_issues(
             except Exception:
                 text = ""
             for iss in find_header_issues(text, is_provider_config=False):
+                issues.append(f"config.toml: {iss}")
+            for iss in codex_obsolete_key_issues(text):
                 issues.append(f"config.toml: {iss}")
             for iss in codex_catalog_pointer_issues(text, cfg):
                 issues.append(f"config.toml: {iss}")
@@ -3338,6 +3491,7 @@ def cmd_repair(args):
         c149 = []
         mcp_type = []
         catalog_pointer = []
+        obsolete = []
         if mode in ("header-order", "both"):
             new_text, moved = repair_header_order(new_text)
         if mode == "live-only":
@@ -3348,6 +3502,8 @@ def cmd_repair(args):
             new_text, mcp_type = repair_mcp_type(new_text)
         if mode == "codex-catalog-path":
             new_text, catalog_pointer = repair_codex_catalog_pointer(new_text, path)
+        if mode == "codex-0167":
+            new_text, obsolete = repair_codex_obsolete_keys(new_text)
         if mode == "codex-key":
             print("  codex-key: only applies to --target provider (the key lives in the provider row)")
         changed = new_text != text
@@ -3362,6 +3518,8 @@ def cmd_repair(args):
             print("  mcp-type:", "; ".join(mcp_type[:10]))
         if catalog_pointer:
             print("  codex-catalog-path:", "; ".join(catalog_pointer[:10]))
+        if obsolete:
+            print("  codex-0167:", "; ".join(obsolete[:10]))
         if changed and apply:
             backup_file(path, "repair")
             _atomic_write_text(path, new_text)
@@ -3396,6 +3554,7 @@ def cmd_repair(args):
             key_msg = None
             key_changed = False
             mcp_type = []
+            obsolete = []
             if mode in ("header-order", "both"):
                 new_cfg, moved = repair_header_order(new_cfg)
             if mode in ("live-only", "both"):
@@ -3414,6 +3573,8 @@ def cmd_repair(args):
                     )
                 else:
                     key_changed, key_msg = restore_codex_provider_key(obj)
+            if mode == "codex-0167":
+                new_cfg, obsolete = repair_codex_obsolete_keys(new_cfg)
             changed = new_cfg != cfg or key_changed
             print(f"[{'APPLY' if apply else 'DRY-RUN'}] provider {provider_id} changed={changed}")
             if moved:
@@ -3426,6 +3587,8 @@ def cmd_repair(args):
                 print("  codex-key:", key_msg)
             if mcp_type:
                 print("  mcp-type:", "; ".join(mcp_type[:10]))
+            if obsolete:
+                print("  codex-0167:", "; ".join(obsolete[:10]))
             if changed and apply:
                 backup_db(cc_home, db_path, "repair-provider")
                 obj["config"] = new_cfg
@@ -3715,12 +3878,13 @@ def build_parser():
         "--mode",
         choices=(
             "header-order", "live-only", "both", "codex-0149", "codex-key",
-            "mcp-type", "codex-catalog-path",
+            "mcp-type", "codex-catalog-path", "codex-0167",
         ),
         default="both",
         help="codex-key restores auth.OPENAI_API_KEY (provider target only); mcp-type strips "
              "type/timeout/autoApprove lines that Codex rejects; codex-catalog-path makes "
-             "the CCS-owned live catalog pointer absolute for native Codex config dirs",
+             "the CCS-owned live catalog pointer absolute for native Codex config dirs; "
+             "codex-0167 removes settings such as disable_response_storage that Codex 0.167 rejects",
     )
     rp.add_argument("--apply", action="store_true", help="write changes (with automatic backup)")
     rp.add_argument("--provider-id")

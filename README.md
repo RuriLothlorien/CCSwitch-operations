@@ -19,6 +19,9 @@
 > [!WARNING]
 > **Codex 桌面版需要 `~/.codex/auth.json`**：CC Switch 3.20.1 起的 Codex 第三方切换是 config-only（密钥写进 `[model_providers.*]` 的 `experimental_bearer_token`），但部分 Codex 构建（尤其桌面版）以 `auth.json` 是否存在判定登录态——只写 token 并删除 `auth.json` 会让 Codex 回到默认登录页。3.20.2 只修了**接管**路径，**直切**第三方仍会删除 `auth.json`。请保留 `auth.json`，并在 CCS 设置中打开“非接管切换时保留官方登录”（`preserveCodexOfficialAuthOnSwitch=true`）。
 
+> [!NOTE]
+> **Codex 0.167+ 会话按供应商分组**：直连模式且未开启“统一 Codex 会话历史”时，官方与第三方会话位于不同组，切换后在另一组只能查看。需要双向续接时，使用路由/聚合模式，或在 CCS 设置中开启统一会话历史。`doctor` 会检查当前组合。
+
 ## 为什么需要这个技能？
 
 CC Switch 的配置分散在数据库、`settings.json` 和多个应用的 live 配置文件里。手动维护的痛点是：位置多、容易忘，改完还要去 Codex、Claude Code、Claude Desktop、Gemini 等每个 agent 里**逐个确认**是否生效，稍不留神漏一处，下次切换供应商时配置就被覆盖、工具就失效。更麻烦的是，**AI 在自我维护时往往只顾自己的 agent 配置，不会顾及系统中安装的 CC Switch**——它自己写的 `config.toml` / `settings.json` 可能和 CCS 的管理状态冲突，下一次切换就被回写覆盖。更糟的是，**CCS 自己也可能误操作你的配置**——3.20.0–3.20.3 的 Codex 供应商编辑页曾在零改动保存时重排 `config.toml`、剥离通用配置、写入空命令 MCP 坏块（4.0.4 已修复，存量坏块仍需重同步或用本技能修复）。用户不应该费时费力地手动维护 CCS 与你的 agents 的一致性。
@@ -35,13 +38,15 @@ CC Switch 的配置分散在数据库、`settings.json` 和多个应用的 live 
 
 ## 版本兼容
 
-- 本技能基于 **CC Switch 4.0.27**（数据库 schema v24）设计与测试。4.0.24–4.0.27 没有数据库迁移；4.0.20 把 v22 升到 v23（MCP `enabled_omp`），4.0.22 把 v23 升到 v24（MCP/Skills `enabled_dsh` 与内部 `session_log_sync.parser_state`）。迁移后旧版 CCS 会以“数据库版本过新”拒绝打开——升级前请保留自动备份。
+- 本技能基于 **CC Switch 4.0.28 / Codex 0.167**（数据库 schema v24）设计与测试。4.0.24–4.0.28 没有数据库迁移；4.0.20 把 v22 升到 v23（MCP `enabled_omp`），4.0.22 把 v23 升到 v24（MCP/Skills `enabled_dsh` 与内部 `session_log_sync.parser_state`）。迁移后旧版 CCS 会以“数据库版本过新”拒绝打开——升级前请保留自动备份。
 - 历史库仍按列兼容读取：v17（3.20.0）、v18（3.20.1–3.20.3）、v19（3.20.4）、v20（4.0.16–4.0.17）、v21（4.0.18）、v22（4.0.19）、v23（4.0.20–4.0.21）；一旦升级到 v24，旧版 CCS 将无法直接打开数据库。
 - CCS 4.0 行为变化：**通用配置片段功能已移除**（共享设置直接留在客户端配置文件里并跨切换保留；临时在客户端选的模型/推理强度，切走再切回会恢复为供应商设定值）；新增**聚合（Stack）模式**（Claude Code、Codex，以及 4.0.13 起的 Claude Desktop；按所选模型分发、不提供故障转移，状态在设备本地 `~/.cc-switch/live-state.json`，Claude Code 的发布模型在 `providers.meta.stackModels`）；配置写入改为“只替换关键字段”；MCP 支持 Pi（`~/.pi/agent/mcp.json`，v20 的 `enabled_pi`）；Codex 0.158+ 的 MCP `type` 字段问题已修（CCS 4.0 写入时剥离）；可选压缩 Codex 历史会话（写 `[features] local_thread_store_compression`）。
 - **`common-config` 命令只适用于 CCS ≤ 3.20.4（schema ≤ v19）**；在 v20 上所有 `common-config` 子命令都会被明确拒绝并提示新做法：共享键写客户端 live 配置，供应商专属字段写卡片（`provider-block` / `provider-set-key` / `provider-env`）。
 - mcode 需要 3.20.4+；Pi 需要 4.0+；Antigravity（`--enable-agy`）需要 4.0.18+；Kimi Code（`--enable-kimi`）需要 4.0.19+；Oh My Pi（`--enable-omp`）需要 4.0.20+；DeepSeek Harness（`--enable-dsh`）需要 4.0.22+。DSH 的配置目录按 **CCS 设置 → `DSH_HOME` → `~/.dsh`** 解析，也可用 `--dsh-home` 显式指定。
 - Kimi/OMP/mcode 的结构化供应商、Agy 的启动终端供应商由 CCS 界面管理；DeepSeek Harness 使用专用的 `dsh-provider-get/set/remove`，会同时原子更新所有 profile、`.credentials.yaml` 和数据库，并兼容 4.0.24+ 的模型输入模态限制与 4.0.26+ 的 headless 凭据存储。
 - 配置文件通过软链接维护时可以直接使用本技能：4.0.27 对齐后的写入会更新链接目标，不会把链接替换成普通文件。
+- Codex 0.167 已移除 `disable_response_storage`。`check --strict` 会检测遗留行，`repair --mode codex-0167` 可从 live 配置或 provider 卡中清理；CCS 4.0.28 下次切换也会自动清掉 live 中的旧行。
+- 4.0.28 的路由模式可能故意保留内置 `openai` 选择器并写 `openai_base_url` 指向 CCS 本地路由。这属于会话分组契约，不是旧的密钥误路由；本技能的 `codex-0149` 修复会识别并保持该形态。
 - 3.20.x 遗留行为（Codex `model_provider` 缺省卡的接管路由、统一同步的子卡设置、代理重试/超时串写、Kimi/DeepSeek 预设等）与 4.0 的完整变化见 `references/migration.md`。
 - 操作前可运行 `python scripts/ccs_db.py doctor` 查看 schema、各应用当前模式（直连/路由/聚合）与关键安全告警。
 - 其他版本可能略有差异，详见 `references/migration.md` 的官方版本行为变化。
@@ -52,7 +57,7 @@ CC Switch 的配置分散在数据库、`settings.json` 和多个应用的 live 
 - 面向中文内容安全的数据库辅助脚本（`scripts/ccs_db.py`），支持 UTF-8 文件与内联中文参数。
 - 覆盖全部 14 个受管应用：codex、claude、claude-desktop、gemini、grokbuild、opencode、openclaw、hermes、pi、mcode、kimi、agy、omp、dsh。
 - 跨平台：自动发现 `CC_SWITCH_HOME` / `~/.cc-switch`，文档同时给出 PowerShell 与 bash 示例。
-- `doctor` 子命令输出解析到的路径、DSH 配置目录、数据库 schema、14 个应用及其供应商状态、MCP/Skills 标志列和当前模式；它还会提示状态文件损坏、Codex 官方登录保留开关、相对模型目录指针，以及 OMP 技能“存在即启用”的差异。
+- `doctor` 子命令输出解析到的路径、DSH 配置目录、数据库 schema、14 个应用及其供应商状态、MCP/Skills 标志列和当前模式；它还会提示状态文件损坏、Codex 官方登录保留开关、会话分组风险、暂停官方登录是否可用于当前模式、额度保护的最终有效状态、相对模型目录指针，以及 OMP 技能“存在即启用”的差异。
 
 ## 工作原理
 
@@ -146,12 +151,13 @@ python scripts/ccs_db.py repair --target provider --mode codex-0149        # dry
 python scripts/ccs_db.py repair --target provider --mode codex-key         # dry-run：恢复被 CCS #7434 清空的 Codex 密钥
 python scripts/ccs_db.py repair --target provider --mode mcp-type         # dry-run：清理 Codex 不接受的 MCP `type` 键
 python scripts/ccs_db.py repair --target config.toml --mode codex-catalog-path  # dry-run：修正 CCS 自有模型目录指针
+python scripts/ccs_db.py repair --target config.toml --mode codex-0167  # dry-run：移除 Codex 0.167 废弃键
 
 # 示例（完整命令见 references/operations.md）
 python scripts/ccs_db.py mcp-upsert --name my-server --config-file server_config.json --enable-codex --enable-claude
 python scripts/ccs_db.py mcp-upsert --name my-server --config-file server_config.json --enable-pi   # Pi 1.0（CCS 4.0+）
 python scripts/ccs_db.py mcp-upsert --name my-server --config-file server_config.json --enable-agy --enable-kimi  # CCS 4.0.19+
-python scripts/ccs_db.py mcp-upsert --name my-server --config-file server_config.json --enable-omp --enable-dsh    # CCS 4.0.27
+python scripts/ccs_db.py mcp-upsert --name my-server --config-file server_config.json --enable-omp --enable-dsh    # CCS 4.0.28
 python scripts/ccs_db.py dsh-provider-get --provider-id <id>
 python scripts/ccs_db.py dsh-provider-set --provider-id <id> --config-file dsh-provider.json --apply
 python scripts/ccs_db.py dsh-provider-remove --provider-id <id> --apply
@@ -170,10 +176,10 @@ python scripts/ccs_db.py set-flags --table skills --name my-skill --mcode 1
 如需手动打包为可分发的 zip（例如导入 CC Switch 或手动分享）：
 
 ```bash
-python scripts/build-zip.py --version 1.5.1
+python scripts/build-zip.py --version 1.5.2
 ```
 
-输出：`dist/CCSwitch-operations-v1.5.1.zip`。
+输出：`dist/CCSwitch-operations-v1.5.2.zip`。
 
 ## 文档
 

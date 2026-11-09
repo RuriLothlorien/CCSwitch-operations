@@ -1,12 +1,12 @@
-# v1.5.1 增量更新
+# v1.5.2 增量更新
 
-## 对齐 CC Switch 4.0.27 / schema v24
+## 对齐 CC Switch 4.0.28 / Codex 0.167 / schema v24
 
-- **DSH 对齐 4.0.24/4.0.26**：模型输入只保留 `text`/`image`；解析 `settings.json:dshConfigDir`（含 WSL 路径）；已有 headless profile 在需要时恢复 credentials store。
-- **软链接安全写入（4.0.27）**：原子写入会更新链接目标，不再把配置文件软链接替换成普通文件，也避免 Windows 原子替换报错。
-- **Skill 哈希对齐（4.0.27）**：`skill-upsert` 改为完整目录哈希，忽略隐藏文件、`__pycache__/` 和 `*.pyc`，运行 Skill 不再制造“可更新”假阳性。
-- **Codex 结构审计增强**：检测 provider card 中违规的 `[agents].max_threads`；检测原生配置目录中的相对 `model_catalog_json`，新增 `repair --mode codex-catalog-path`。
-- **文档更新**：补充 4.0.24–4.0.27 的 MCP 连通性、本地路由来源限制、DSH 目录/凭据、Codex Fast 与全局设置行为。
+- **Codex 0.167 废弃键修复**：`check --strict` 检测 `disable_response_storage`；新增 `repair --mode codex-0167`，支持 live 配置和 provider 卡。
+- **4.0.28 本地路由识别**：路由模式合法的内置 `openai` + 本地 `openai_base_url` 不再被当作旧误路由，`codex-0149` 会识别并保持不变。
+- **Codex 会话诊断**：`doctor` 显示统一历史、旧会话迁移、暂停官方登录和额度保护有效状态；direct + split 会提示异组会话只读风险。
+- **模式冲突提示**：`codexProxyWithoutOfficialLogin` 在 direct 模式开启时明确提示无效；额度保护迁移未落盘时显示 `pending default-on`。
+- **文档更新**：补充 4.0.28 会话分桶、路由契约、官方登录暂停、额度保护迁移和 Codex 0.167 配置移除。
 
 ## 更新安装方法
 
@@ -30,13 +30,13 @@ python scripts/ccs_db.py doctor --audit
 
 ---
 
-## v1.5.1 Incremental (English)
+## v1.5.2 Incremental (English)
 
-- **DSH aligned with 4.0.24/4.0.26**: model inputs are limited to `text`/`image`, `settings.json:dshConfigDir` (including WSL paths) is honored, and existing headless profiles restore the managed credentials store when needed.
-- **Symlink-safe writes (4.0.27)**: atomic writes update the link target instead of replacing a config symlink with a regular file or failing on Windows.
-- **Skill hash alignment (4.0.27)**: `skill-upsert` now hashes the complete directory while ignoring hidden files, `__pycache__/`, and `*.pyc`, preventing false update detection after running a skill.
-- **Codex audit improvements**: detects provider-card misuse of `[agents].max_threads` and relative `model_catalog_json` pointers in native config dirs; adds `repair --mode codex-catalog-path`.
-- **Documentation**: covers 4.0.24–4.0.27 MCP connectivity, local-router origin protection, DSH directory/credentials behavior, Codex Fast, and global settings.
+- **Codex 0.167 obsolete-key repair**: `check --strict` detects `disable_response_storage`; the new `repair --mode codex-0167` cleans live config and provider cards.
+- **4.0.28 local-route recognition**: the valid route-mode shape with the built-in `openai` provider and a local `openai_base_url` is preserved rather than mistaken for a legacy misroute.
+- **Codex session diagnostics**: `doctor` shows unified-history, legacy-migration, pause-official-login and effective quota-protection state, and warns that direct + split makes the inactive session group read-only.
+- **Mode conflict warnings**: `codexProxyWithoutOfficialLogin` in direct mode is reported as ineffective; quota protection appears as `pending default-on` until its one-time migration is persisted.
+- **Documentation**: covers 4.0.28 session buckets, route contracts, official-login pause, quota migration and Codex 0.167 config removal.
 
 ### Update / Install
 

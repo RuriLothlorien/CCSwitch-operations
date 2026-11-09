@@ -73,6 +73,11 @@
 | `content_hash` 与 CCS 对同一 Skill 显示的值不同 | 只哈希了 `SKILL.md`，而 CCS 4.0.27 按完整 Skill 目录计算 | 运行 v1.5.1+ 的 `skill-upsert` 重算；不要继续使用只覆盖单文件的旧哈希 |
 | Codex 配置了自定义权限后，plan 模式报 `AbsolutePathBuf deserialized without a base path` | 原生配置目录里的 CCS 自有 `model_catalog_json` 仍是裸文件名（#7294） | 升级 4.0.27；下一次 CCS 写入会改成绝对路径，也可先跑 `repair --target config.toml --mode codex-catalog-path --apply`。WSL/UNC 目录保持裸文件名 |
 | 把 `[agents].max_threads` 写进供应商卡，切换后时有时无 | 4.0.25 起该键是 Codex 全局设置，只保存在 live `config.toml` 并跨供应商保留 | 从 provider card 删除；在 CCS 供应商表单/Codex live 配置里设置。`check --strict` 会拦截 provider card 中的该键 |
+| Codex 0.167 每次启动提示 `disable_response_storage` 无法识别 | 该设置已从 Codex 删除；旧 provider 模板或 live 配置仍残留 | CCS 4.0.28 下次切换会清掉 live 行；也可用 `check --strict` 检测，再执行 `repair --mode codex-0167` 清理 live/provider |
+| Codex 直连切换后旧会话只能查看、不能继续 | Codex 0.167+ 按 provider id 分组；直连且未统一历史时，官方 `openai` 与第三方 `custom` 互相切换不会共用续接组 | 使用路由/聚合，或在 CCS 设置中开启“统一 Codex 会话历史”；`doctor` 会在 direct + split 时告警 |
+| 开启“暂停使用官方登录”后在直连模式没有效果 | 4.0.28 的该开关只改 route/stack 的代理契约，直连不受影响 | 切换到路由/聚合后开启，并彻底退出、重新打开 Codex |
+| 把 4.0.28 路由的 `openai_base_url` 当成旧误路由并迁移成 custom | 有 ChatGPT 登录且未统一历史时，第三方路由故意使用内置 `openai` 桶，地址指向 CCS 本地路由，凭据由路由替换 | 只把它当作 `openai_base_url` 误路由，当目标不是回环/本地 CCS 路由或同时带有不应出现的顶层 token；`repair --mode codex-0149` 会识别本地契约 |
+| `settings.json` 里额度保护写着 false，但界面可能已经开启 | 4.0.28 对旧设置做一次性默认开启迁移，标记未落盘前 raw JSON 与运行时有效值不同 | 以 `doctor` 的 `quota_protection=on/off` 为准；有 `(pending default-on)` 时 4.0.28 运行时按开启处理 |
 | `doctor --audit` 通过，但 MCP 实际连不上 | 结构审计只比较 DB/provider/live 三处配置，不执行本地命令或不访问远端；4.0.25+ 才提供实际连通性测试 | 在 CCS MCP 页面点“检查连通性/测试连接”；不要用未知 MCP 的启动来证明配置有效 |
 | 打开「压缩 Codex 历史会话」后别的工具读不到会话 | 7 天以上会话被压成 `.jsonl.zst`，直接读 raw `.jsonl` 的工具看不到 | 属于预期行为：压缩会话在 CCS 里照常可读，Codex 继续时会自动解压；需要被第三方读取时不要开该开关 |
 | 升级 4.0 后旧触发的问题还在 | 部分修复（Codex 模型目录、会话分组、MCP `type`）要等 CCS 下一次写入才生效 | 升级后切换一次供应商；已有 MCP 配置重新同步一次；时间 MCP 预设改为 `uvx mcp-server-time`（存量需手改） |

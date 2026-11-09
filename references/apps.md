@@ -1,4 +1,4 @@
-# 十四大受管应用矩阵（CCS 4.0.27）
+# 十四大受管应用矩阵（CCS 4.0.28）
 
 路径均使用可移植写法：`~` 在 Windows 上等同于 `%USERPROFILE%`；macOS/Linux 为 `$HOME`。
 
@@ -30,7 +30,7 @@
 
 - **Pi**：CCS 绝不读写 `~/.pi/agent/auth.json`、`defaultProvider`、`defaultModel`；Skills 按“存在即启用”，CCS 不覆盖/删除同名但非它所有的 skill；CCS 4.0 起 MCP 同步到 `~/.pi/agent/mcp.json`（`enabled_pi`，只写连接字段，关同步=停用不删条目）。
 - **Claude Desktop**：4.0.13 起可直接使用直连/路由/聚合三种模式；需要模型映射的卡不能直连，路由和聚合都要求 CC Switch 保持运行。Desktop 只在启动时读取配置，切换模式、路由目标或聚合成员后必须重启 Desktop。3P 的 MCP/Skills 仍不由 CCS 同步：MCP 手写 3P config，skills 走 `manifest.json`（`syncManaged:false`）+ `cc-switch-managed.json` 手动同步。
-- **Codex**：官方/内置 MCP（如 `openaiDeveloperDocs`）在 `mcp_servers` 表中没有行属正常，不要补录。4.0.25+ 的 `[agents].max_threads` 是客户端全局键并跨供应商保留，应写在 live `config.toml`，不要放进 provider card。
+- **Codex**：官方/内置 MCP（如 `openaiDeveloperDocs`）在 `mcp_servers` 表中没有行属正常，不要补录。4.0.25+ 的 `[agents].max_threads` 是客户端全局键并跨供应商保留，应写在 live `config.toml`，不要放进 provider card。Codex 0.167+ 按 provider id 分会话组；直连模式未统一历史时，官方/第三方切换后另一组只读。路由/聚合可保留在 `openai` 桶；统一历史或暂停官方登录会使用 `custom`。`disable_response_storage` 已废弃，不可再加入卡片或 live。
 - **Kimi Code（4.0.19+，`kimi`）**：CLI 与桌面版共享 `~/.kimi-code`；多供应商共存，默认模型和子代理引用的供应商不能移除。供应商在 DB 中是结构化 `{provider, models}`，不是本技能 provider-* 命令支持的 TOML/env 形态。
 - **Antigravity（4.0.18+，`agy`）**：`~/.gemini/config` 可能和 Antigravity IDE 共用；修改 MCP/Skills/提示词前确认影响范围。SSE MCP 不支持，应该桥接到 stdio 或流式 HTTP。
 - **Oh My Pi（4.0.20+，`omp`）**：agent 目录可能是默认目录或 `OMP_PROFILE`/`PI_PROFILE` 选中的 profile，也受 `PI_CONFIG_DIR`、`PI_CODING_AGENT_DIR` 和 CCS 目录覆盖影响。供应商是 `models.yml`，可能含 anchors/tags/flow YAML；provider-* 命令必须拒绝。
