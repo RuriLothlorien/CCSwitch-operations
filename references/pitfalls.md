@@ -71,6 +71,8 @@
 | 配置文件是软链接，切换后链接变成普通文件或 Windows 报错 | 旧写入器替换了链接本身；Windows 原子替换可能返回 1464 | CCS 4.0.27+ 会写链接目标并保留链接；本技能 v1.5.1+ 的原子写入同样解析最终目标 |
 | Skill 只运行过一次就显示“可更新” | Python 生成了 `__pycache__/` 或 `.pyc`，旧目录哈希把它们算进内容 | CCS 4.0.27+ 与本技能 v1.5.1+ 忽略隐藏文件、`__pycache__/`、`*.pyc`；不要为刷新状态手工删业务文件 |
 | `content_hash` 与 CCS 对同一 Skill 显示的值不同 | 只哈希了 `SKILL.md`，而 CCS 4.0.27 按完整 Skill 目录计算 | 运行 v1.5.1+ 的 `skill-upsert` 重算；不要继续使用只覆盖单文件的旧哈希 |
+| DSH 技能列表中完全看不到某个已安装 Skill | `SKILL.md` 的 frontmatter `name` 不是小写 kebab-case，DSH 加载器会告警并跳过 | 将 `name` 规范为小写字母、数字和单连字符；v1.5.3+ 的打包校验会拒绝大写名称 |
+| 刷新 Skill 哈希后多个应用的启用状态被关闭 | `skill-upsert` 的 `--enable-*` 是全量标志集，省略的开关会写 0 | v1.5.3+ 更新已有技能时加 `--preserve-flags`；单开关修改用 `set-flags` |
 | Codex 配置了自定义权限后，plan 模式报 `AbsolutePathBuf deserialized without a base path` | 原生配置目录里的 CCS 自有 `model_catalog_json` 仍是裸文件名（#7294） | 升级 4.0.27；下一次 CCS 写入会改成绝对路径，也可先跑 `repair --target config.toml --mode codex-catalog-path --apply`。WSL/UNC 目录保持裸文件名 |
 | 把 `[agents].max_threads` 写进供应商卡，切换后时有时无 | 4.0.25 起该键是 Codex 全局设置，只保存在 live `config.toml` 并跨供应商保留 | 从 provider card 删除；在 CCS 供应商表单/Codex live 配置里设置。`check --strict` 会拦截 provider card 中的该键 |
 | Codex 0.167 每次启动提示 `disable_response_storage` 无法识别 | 该设置已从 Codex 删除；旧 provider 模板或 live 配置仍残留 | CCS 4.0.28 下次切换会清掉 live 行；也可用 `check --strict` 检测，再执行 `repair --mode codex-0167` 清理 live/provider |

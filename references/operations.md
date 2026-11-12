@@ -85,9 +85,10 @@ python $S prompt-set --app-type codex --content-file prompts_codex.txt
 
 ```powershell
 python $S skill-upsert --name my-skill --description "我的技能" --enable-codex
+python $S skill-upsert --name my-skill --preserve-flags
 ```
 
-编辑本地 skill 后必须重跑一次刷新 `content_hash`；工具按 CCS 4.0.27 的完整目录语义计算，并忽略隐藏文件、`__pycache__/`、`*.pyc`。repo 安装的 skill（`repo_owner` 非空）不要手改；Pi 没有 DB 开关（存在即启用）。
+编辑本地 skill 后必须重跑一次刷新 `content_hash`；已有记录使用 `--preserve-flags` 可避免未传的 `--enable-*` 把已启用应用置 0。工具按 CCS 4.0.27 的完整目录语义计算，并忽略隐藏文件、`__pycache__/`、`*.pyc`。技能技术名必须是小写 kebab-case，DSH 会静默跳过不合规的 frontmatter `name`；目录名可以与 `name` 不同。repo 安装的 skill（`repo_owner` 非空）不要手改；Pi 没有 DB 开关（存在即启用）。
 
 ### 供应商 config 文本
 

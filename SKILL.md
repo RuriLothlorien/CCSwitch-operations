@@ -1,5 +1,5 @@
 ---
-name: CCSwitch-operations
+name: ccswitch-operations
 description: "Operate CC Switch (CCS): safely modify and sync its managed configuration — global prompts, skills, MCP servers, providers, and the Codex model catalog — across Codex, Claude Code, Claude Desktop, and other managed apps via cc-switch.db and the managed config files. Use when the user asks to 同步/修改 CCS 或 CC Switch 配置、全局提示词、skill 同步/安装、MCP 配置、供应商配置、修复 CCS 乱码, or whenever CCS-managed files must be edited without being overwritten on the next sync."
 ---
 
@@ -48,6 +48,7 @@ Methodology for safely operating CC Switch (CCS): backup first, stop the app, ed
 
 ## 5. Skills
 
+- The skill identity is the lowercase kebab-case `name` in `SKILL.md`. DSH silently skips invalid names, while the containing folder and repository name may remain branded such as `CCSwitch-operations`.
 - Source of truth: `<cc-home>/skills/<name>/SKILL.md`; `skills.enabled_*` flags control per-app enablement.
 - Install to an app = copy/symlink/junction the skill folder into the app's skills directory (see references/apps.md for per-app paths). The exact link style is controlled by CCS `skillSyncMethod` (auto/symlink/copy).
 - Kimi Code stores skills under `~/.kimi-code/skills`; Agy uses `~/.gemini/config/skills`. Both use CCS's ownership checks and do not overwrite an unrelated same-name native skill.
@@ -125,4 +126,4 @@ Methodology for safely operating CC Switch (CCS): backup first, stop the app, ed
 
 ## Helper script
 
-- scripts/ccs_db.py — portable CCS DB operations (UTF-8 safe). Subcommands: `mcp-upsert`, `prompt-set`, `skill-upsert`, `provider-block`, `provider-env`, `provider-set-key`, `dsh-provider-get/set/remove`, `set-flags`, `check` (`--strict`), `doctor` (`--audit` / `--compare-backup`, prints 14-app provider counts, DSH directory resolution, Codex session/auth diagnostics, flag-column availability, user-facing modes and safety warnings), `snapshot`, `diff`, `repair` (header-order / live-only / codex-0149 / codex-key / mcp-type / codex-catalog-path / codex-0167), `common-config`. `mcp-upsert` / `skill-upsert` / `set-flags` support `agy`, `kimi`, `omp` and `dsh` with each app's flag semantics. `dsh-provider-set` transactionally updates all profile patches, credentials and the DB row; `dsh-provider-remove` reverses it.
+- scripts/ccs_db.py — portable CCS DB operations (UTF-8 safe). Subcommands: `mcp-upsert`, `prompt-set`, `skill-upsert` (`--preserve-flags` for existing-skill refreshes), `provider-block`, `provider-env`, `provider-set-key`, `dsh-provider-get/set/remove`, `set-flags`, `check` (`--strict`), `doctor` (`--audit` / `--compare-backup`, prints 14-app provider counts, DSH directory resolution, Codex session/auth diagnostics, flag-column availability, user-facing modes and safety warnings), `snapshot`, `diff`, `repair` (header-order / live-only / codex-0149 / codex-key / mcp-type / codex-catalog-path / codex-0167), `common-config`. `mcp-upsert` / `skill-upsert` / `set-flags` support `agy`, `kimi`, `omp` and `dsh` with each app's flag semantics. `dsh-provider-set` transactionally updates all profile patches, credentials and the DB row; `dsh-provider-remove` reverses it.

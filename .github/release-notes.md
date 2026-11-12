@@ -1,45 +1,38 @@
-# v1.5.2 增量更新
+# v1.5.3 增量更新
 
-## 对齐 CC Switch 4.0.28 / Codex 0.167 / schema v24
+## 兼容性修复
 
-- **Codex 0.167 废弃键修复**：`check --strict` 检测 `disable_response_storage`；新增 `repair --mode codex-0167`，支持 live 配置和 provider 卡。
-- **4.0.28 本地路由识别**：路由模式合法的内置 `openai` + 本地 `openai_base_url` 不再被当作旧误路由，`codex-0149` 会识别并保持不变。
-- **Codex 会话诊断**：`doctor` 显示统一历史、旧会话迁移、暂停官方登录和额度保护有效状态；direct + split 会提示异组会话只读风险。
-- **模式冲突提示**：`codexProxyWithoutOfficialLogin` 在 direct 模式开启时明确提示无效；额度保护迁移未落盘时显示 `pending default-on`。
-- **文档更新**：补充 4.0.28 会话分桶、路由契约、官方登录暂停、额度保护迁移和 Codex 0.167 配置移除。
+- **兼容基线不变**：继续支持并对齐 CC Switch 4.0.28 / Codex 0.167 / schema v24。
+- **DSH 技能加载**：技术名称改为小写 kebab-case `ccswitch-operations`，避免 DSH 因名称不合规而跳过整个技能；仓库、ZIP 目录和界面展示名称保持不变。
+- **安全刷新哈希**：`skill-upsert --preserve-flags` 在更新已有技能时保留所有 `enabled_*`，不会因省略开关而关闭 Codex、DSH 等已启用应用。
+- **发布包校验**：手动打包和 Release 构建会校验 frontmatter 名称及描述，不合规时拒绝生成 ZIP。
+- **安装文档**：补充 DSH 导入目录、CCS 已建链接和技能技术名称的区别。
 
 ## 更新安装方法
 
 ### Codex
-1. 退出 Codex
-2. 用 zip 解压出的 `CCSwitch-operations/` 替换 `~/.codex/skills/CCSwitch-operations/`
-3. 重新打开 Codex 并新开会话
+1. 退出 Codex。
+2. 用 zip 解压出的 `CCSwitch-operations/` 替换 `~/.codex/skills/CCSwitch-operations/`。
+3. 重新打开 Codex 并新开会话。
 
-### Claude Code / 其他 SKILL.md agent
-用 zip 解压出的 `CCSwitch-operations/` 替换对应 agent skills 目录下的同名文件夹。
+### DeepSeek Harness / 其他 SKILL.md agent
+用 zip 解压出的 `CCSwitch-operations/` 替换对应 agent skills 目录下的同名文件夹。若 CC Switch 已创建链接，则刷新其技能同步并重启应用或新开会话。技能在列表中的调用名是 `ccswitch-operations`。
 
 ### CC Switch
 在 CC Switch 中从 zip 导入/安装（zip 顶层为 `CCSwitch-operations/`，根目录含 `SKILL.md`），或使用 README 中的 `ccswitch://` 深链加入仓库后安装。
 
-### 升级后建议
-```bash
-python scripts/ccs_db.py doctor
-python scripts/ccs_db.py check --strict
-python scripts/ccs_db.py doctor --audit
-```
-
 ---
 
-## v1.5.2 Incremental (English)
+## v1.5.3 Incremental (English)
 
-- **Codex 0.167 obsolete-key repair**: `check --strict` detects `disable_response_storage`; the new `repair --mode codex-0167` cleans live config and provider cards.
-- **4.0.28 local-route recognition**: the valid route-mode shape with the built-in `openai` provider and a local `openai_base_url` is preserved rather than mistaken for a legacy misroute.
-- **Codex session diagnostics**: `doctor` shows unified-history, legacy-migration, pause-official-login and effective quota-protection state, and warns that direct + split makes the inactive session group read-only.
-- **Mode conflict warnings**: `codexProxyWithoutOfficialLogin` in direct mode is reported as ineffective; quota protection appears as `pending default-on` until its one-time migration is persisted.
-- **Documentation**: covers 4.0.28 session buckets, route contracts, official-login pause, quota migration and Codex 0.167 config removal.
+- **Compatibility baseline unchanged**: continues to target CC Switch 4.0.28, Codex 0.167 and schema v24.
+- **DSH skill loading**: the technical name is now the lowercase kebab-case `ccswitch-operations`, so DSH no longer skips the skill. The repository, zip folder and display name remain unchanged.
+- **Safe hash refresh**: `skill-upsert --preserve-flags` keeps every existing `enabled_*` value when updating a skill.
+- **Package validation**: manual and Release builds reject invalid frontmatter names or missing descriptions.
+- **Installation guidance**: documents DSH directory import, existing CC Switch links, and the difference between the technical and display names.
 
 ### Update / Install
 
 1. Quit the target agent.
 2. Replace its existing `CCSwitch-operations/` skill folder with the one from this zip.
-3. Restart the agent, then run `doctor`, `check --strict`, and `doctor --audit`.
+3. Restart the agent or start a new session. The skill is exposed as `ccswitch-operations`.

@@ -433,15 +433,21 @@ def cmd_skill_upsert(args):
     cur = con.cursor()
     flag_cols = enabled_flag_columns(con, "skills")
     col_names = [col for _, col in flag_cols]
-    values = _flag_values(args, flag_cols)
     notes = _unavailable_flag_notes("skills", flag_cols, args)
+    select_cols = ["id", "description", *col_names]
     existing = cur.execute(
-        "SELECT id, description FROM skills WHERE id=?", (skill_id,)
+        f"SELECT {', '.join(select_cols)} FROM skills WHERE id=?", (skill_id,)
     ).fetchone()
+    if args.preserve_flags:
+        if not existing:
+            raise SystemExit("--preserve-flags requires an existing skills row")
+        values = [existing[col] for col in col_names]
+    else:
+        values = _flag_values(args, flag_cols)
     if desc is None:
         desc = (existing["description"] or "") if existing else ""
     warn = None
-    if existing and col_names:
+    if existing and col_names and not args.preserve_flags:
         prev = cur.execute(
             f"SELECT {', '.join(col_names)} FROM skills WHERE id=?", (skill_id,)
         ).fetchone()
@@ -3788,6 +3794,11 @@ def build_parser():
     k.add_argument("--description")
     k.add_argument("--description-file")
     k.add_argument("--content-hash")
+    k.add_argument(
+        "--preserve-flags",
+        action="store_true",
+        help="keep every existing enabled_* value when refreshing an existing skill",
+    )
     add_bool_flags(k)
     k.set_defaults(func=cmd_skill_upsert)
 

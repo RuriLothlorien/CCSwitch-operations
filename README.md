@@ -110,6 +110,8 @@ CCSwitch-operations/
 
 ## 安装
 
+本技能的技术名称与调用名是 `ccswitch-operations`，由 `SKILL.md` frontmatter 提供；仓库、ZIP 顶层目录和界面展示仍使用更容易识别的 `CCSwitch-operations`。支持 `SKILL.md` 的 agent 应以 frontmatter 名称为准。
+
 ### Codex
 
 把 `CCSwitch-operations` 文件夹复制或软链接到 `~/.codex/skills/`，然后新开一个 Codex 会话。
@@ -121,6 +123,10 @@ CCSwitch-operations/
 ### 其他 SKILL.md agent
 
 把 `CCSwitch-operations` 文件夹放到对应 agent 的 skills 目录（例如 `~/.gemini/skills`、`~/.config/opencode/skills`、`~/.openclaw/skills`、`~/.pi/agent/skills`）。大多数 agent 从文件夹根目录的 `SKILL.md` 加载技能。
+
+### DeepSeek Harness（DSH）
+
+如果 CC Switch 已经创建了 `~/.dsh/skills/` 下的技能链接，不需要再通过技能中心导入；更新文件后重启 DSH 或新开会话即可。若使用目录导入，请选择包含多个 `<技能名>/SKILL.md` 的父级 `skills` 目录，不要直接选择这一个技能目录，否则根目录的 `README.md` 会被误当成缺少 frontmatter 的技能文件。
 
 ### CC Switch
 
@@ -176,10 +182,10 @@ python scripts/ccs_db.py set-flags --table skills --name my-skill --mcode 1
 如需手动打包为可分发的 zip（例如导入 CC Switch 或手动分享）：
 
 ```bash
-python scripts/build-zip.py --version 1.5.2
+python scripts/build-zip.py --version 1.5.3
 ```
 
-输出：`dist/CCSwitch-operations-v1.5.2.zip`。
+输出：`dist/CCSwitch-operations-v1.5.3.zip`。
 
 ## 文档
 

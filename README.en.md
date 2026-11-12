@@ -111,6 +111,8 @@ The release zip contains only what the skill needs at runtime: `SKILL.md`, `agen
 
 ## Install
 
+The technical and invocation name is `ccswitch-operations`, supplied by the `SKILL.md` frontmatter. The repository, zip top-level folder and display name remain `CCSwitch-operations` for recognition; agents that support `SKILL.md` should use the frontmatter name.
+
 ### Codex
 
 Copy or symlink the `CCSwitch-operations` folder into `~/.codex/skills/`, then start a new session.
@@ -122,6 +124,10 @@ Copy or symlink the `CCSwitch-operations` folder into `~/.claude/skills/`, then 
 ### Other SKILL.md agents
 
 Place the `CCSwitch-operations` folder into the agent's skills directory (for example `~/.gemini/skills`, `~/.config/opencode/skills`, `~/.openclaw/skills`, `~/.pi/agent/skills`). Most agents load `SKILL.md` from the folder root.
+
+### DeepSeek Harness (DSH)
+
+If CC Switch already created a skill link under `~/.dsh/skills/`, do not import it again through the skill center; update the files and restart DSH or start a new session. For directory import, select the parent `skills` directory containing `<skill-name>/SKILL.md` folders. Selecting this single skill folder treats the root `README.md` as a skill candidate without frontmatter.
 
 ### CC Switch
 
@@ -178,10 +184,10 @@ Set `CC_SWITCH_HOME` to override the CC Switch home directory (default: `~/.cc-s
 To package the skill into a distributable zip (for example to install it in CC Switch or share it manually):
 
 ```bash
-python scripts/build-zip.py --version 1.5.2
+python scripts/build-zip.py --version 1.5.3
 ```
 
-Output: `dist/CCSwitch-operations-v1.5.2.zip`.
+Output: `dist/CCSwitch-operations-v1.5.3.zip`.
 
 ## License
 
