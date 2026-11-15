@@ -1,12 +1,13 @@
-# v1.5.3 增量更新
+# v1.6.0 增量更新
 
 ## 兼容性修复
 
-- **兼容基线不变**：继续支持并对齐 CC Switch 4.0.28 / Codex 0.167 / schema v24。
-- **DSH 技能加载**：技术名称改为小写 kebab-case `ccswitch-operations`，避免 DSH 因名称不合规而跳过整个技能；仓库、ZIP 目录和界面展示名称保持不变。
-- **安全刷新哈希**：`skill-upsert --preserve-flags` 在更新已有技能时保留所有 `enabled_*`，不会因省略开关而关闭 Codex、DSH 等已启用应用。
-- **发布包校验**：手动打包和 Release 构建会校验 frontmatter 名称及描述，不合规时拒绝生成 ZIP。
-- **安装文档**：补充 DSH 导入目录、CCS 已建链接和技能技术名称的区别。
+- **兼容基线升级**：对齐 CC Switch **4.0.32** / Codex 0.167 / 数据库 **schema v26**。
+- **新增两个受管应用**：GitHub Copilot CLI（`copilot`，4.0.29+，schema v25 增加 `enabled_copilot`）与腾讯 WorkBuddy（`workbuddy`，4.0.31+，schema v26 增加 `enabled_workbuddy`）；`--app-type`、`--enable-*`、`--copilot`/`--workbuddy` 与 `doctor` 一并覆盖 16 个应用。
+- **拒绝结构化编辑**：Copilot 的 `providers.json` 与 WorkBuddy 的 `models.json` 由 CCS 整份校验，`provider-block`/`provider-env`/`provider-set-key`/`repair --target provider` 会明确拒绝并指引改用 CCS 界面。
+- **目录解析**：`doctor` 新增 `copilot_home`（`COPILOT_HOME` → `~/.copilot`，含 providers.json 位置）与 `workbuddy_home`（`WORKBUDDY_CONFIG_DIR` → `~/.workbuddy`，含 models.json 与账号级 MEMORY.md 目录）。
+- **Codex 模型目录指针（修正 v1.5.1 回归）**：CCS 4.0.29 起，若 `[desktop] runCodexInWindowsSubsystemForLinux = true`，指针必须保持裸文件名（Windows 绝对路径在 WSL 里的 Codex 中会导致启动报 `os error 2`，上游 #9375）。`check --strict` 与 `repair --mode codex-catalog-path` 现在双向处理。
+- **测试**：新增 schema v26 列、两个新应用的 MCP/Skills/prompts/flags、供应商编辑拒绝、WSL 目录指针正向与反向用例。
 
 ## 更新安装方法
 
@@ -23,13 +24,14 @@
 
 ---
 
-## v1.5.3 Incremental (English)
+## v1.6.0 Incremental (English)
 
-- **Compatibility baseline unchanged**: continues to target CC Switch 4.0.28, Codex 0.167 and schema v24.
-- **DSH skill loading**: the technical name is now the lowercase kebab-case `ccswitch-operations`, so DSH no longer skips the skill. The repository, zip folder and display name remain unchanged.
-- **Safe hash refresh**: `skill-upsert --preserve-flags` keeps every existing `enabled_*` value when updating a skill.
-- **Package validation**: manual and Release builds reject invalid frontmatter names or missing descriptions.
-- **Installation guidance**: documents DSH directory import, existing CC Switch links, and the difference between the technical and display names.
+- **Compatibility baseline**: now targets CC Switch **4.0.32**, Codex 0.167 and database **schema v26**.
+- **Two new managed apps**: GitHub Copilot CLI (`copilot`, 4.0.29+, schema v25 adds `enabled_copilot`) and Tencent WorkBuddy (`workbuddy`, 4.0.31+, schema v26 adds `enabled_workbuddy`). `--app-type`, `--enable-*`, `--copilot`/`--workbuddy` and `doctor` now cover all 16 apps.
+- **Structured edits refused**: Copilot's `providers.json` and WorkBuddy's `models.json` are validated as whole documents by CC Switch, so `provider-block`, `provider-env`, `provider-set-key` and `repair --target provider` refuse them and point at the CC Switch UI.
+- **Directory resolution**: `doctor` now prints `copilot_home` (`COPILOT_HOME` → `~/.copilot`, plus the providers.json location) and `workbuddy_home` (`WORKBUDDY_CONFIG_DIR` → `~/.workbuddy`, plus models.json and the account-scoped MEMORY.md directory).
+- **Codex model-catalog pointer (fixes a v1.5.1 regression)**: since CCS 4.0.29, when `[desktop] runCodexInWindowsSubsystemForLinux = true` the pointer must stay a bare filename — a Windows absolute path makes WSL-hosted Codex fail at startup with `os error 2` (upstream #9375). `check --strict` and `repair --mode codex-catalog-path` now handle both directions.
+- **Tests**: schema v26 columns, MCP/Skills/prompts/flags for both new apps, refusal of structured provider edits, and WSL catalog pointers in both directions.
 
 ### Update / Install
 

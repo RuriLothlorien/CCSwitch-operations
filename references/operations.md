@@ -79,7 +79,7 @@ python "$S" mcp-upsert --name dashscope-websearch \
 python $S prompt-set --app-type codex --content-file prompts_codex.txt
 ```
 
-`--app-type` 支持 14 个应用：`codex` / `claude` / `claude-desktop` / `gemini` / `grokbuild` / `opencode` / `openclaw` / `hermes` / `pi` / `mcode` / `kimi` / `agy` / `omp` / `dsh`（Kimi/OMP/Agy/mcode 的供应商编辑走 CCS 界面；DSH 使用专用命令）。
+`--app-type` 支持 16 个应用：`codex` / `claude` / `claude-desktop` / `gemini` / `grokbuild` / `opencode` / `openclaw` / `hermes` / `pi` / `mcode` / `kimi` / `agy` / `omp` / `dsh` / `copilot` / `workbuddy`（Kimi/OMP/Agy/mcode/Copilot/WorkBuddy 的供应商编辑走 CCS 界面；DSH 使用专用命令）。
 
 ### skill 注册
 
@@ -316,10 +316,10 @@ DSH 目录解析顺序：`--dsh-home` → CCS 4.0.26+ `settings.json:dshConfigDi
 
 可直接从 `references/examples/dsh-provider.json` 复制模板；示例中不含真实凭据。
 
-### CC Switch 4.0.28 升级后复核
+### CC Switch 4.0.32 升级后复核
 
 ```bash
-python scripts/ccs_db.py doctor                                    # schema v24 + 14 应用 + 标志列 + 模式/安全告警
+python scripts/ccs_db.py doctor                                    # schema v26 + 16 应用 + 标志列 + 目录解析 + 模式/安全告警
 python scripts/ccs_db.py check --strict
 python scripts/ccs_db.py doctor --audit
 python scripts/ccs_db.py repair --target config.toml --mode mcp-type    # dry-run：清 type/timeout/autoApprove
@@ -327,7 +327,7 @@ python scripts/ccs_db.py repair --target config.toml --mode codex-catalog-path  
 python scripts/ccs_db.py repair --target config.toml --mode codex-0167  # dry-run：Codex 0.167 废弃键
 ```
 
-要点：4.0.24–4.0.28 无 schema 迁移，仍为 v24；4.0.20 升 v23（`enabled_omp`），4.0.22 升 v24（`enabled_dsh` + `parser_state`）。Codex MCP 旧 live 配置可用 `repair --mode mcp-type` 清理 `type`、`timeout`、`autoApprove`。`common-config` 已移除。Claude Desktop 从 4.0.13 起支持直连/路由/聚合；跨供应商 Codex 子代理开关是 `codexStackClassicTools`。`doctor` 警告 `preserveCodexOfficialAuthOnSwitch` 未开启时，若使用依赖 `auth.json` 的 Codex 构建，应在 CCS 设置中打开。
+要点：4.0.29 升 v25（`enabled_copilot`），4.0.31 升 v26（`enabled_workbuddy`）；4.0.30、4.0.32 无 schema 迁移。4.0.20 升 v23（`enabled_omp`），4.0.22 升 v24（`enabled_dsh` + `parser_state`）。Codex MCP 旧 live 配置可用 `repair --mode mcp-type` 清理 `type`、`timeout`、`autoApprove`。`common-config` 已移除。Claude Desktop 从 4.0.13 起支持直连/路由/聚合；跨供应商 Codex 子代理开关是 `codexStackClassicTools`。`doctor` 警告 `preserveCodexOfficialAuthOnSwitch` 未开启时，若使用依赖 `auth.json` 的 Codex 构建，应在 CCS 设置中打开。
 
 4.0.25+ 的 MCP 连通性检查会实际握手或启动本地命令，和 `doctor --audit` 的结构一致性不是一回事；本技能不会为了“验证”而执行未知 MCP。4.0.27+ 配置和 Skill 写入支持软链接；本技能的事务写入同样保留链接。
 
@@ -337,6 +337,13 @@ python scripts/ccs_db.py repair --target config.toml --mode codex-0167  # dry-ru
 - **暂停官方登录**：`codexProxyWithoutOfficialLogin` 只在路由/聚合生效，切换后需彻底重启 Codex；直连下开启无效。
 - **额度保护**：`codexQuotaProtection.enabled` 在 4.0.28 读入时默认开启一次；在迁移标记 `codexQuotaProtectionDefaultOnV1` 落盘前，旧文件里的 false 不是最终有效值。
 - **本地路由形态**：top-level `openai_base_url=http://127.0.0.1:<port>/v1` 且无 bearer 时，可能是 4.0.28 的合法会话分组契约；`codex-0149` 会识别并保持，不要强行迁成 custom 表。
+
+4.0.29–4.0.32 重点：
+
+- **WSL 中的 Codex 桌面版**：`[desktop] runCodexInWindowsSubsystemForLinux = true` 时，CCS 只写裸文件名 `cc-switch-model-catalog.json`；写绝对路径会让桌面版启动报 `os error 2`（#9375）。`check --strict` 会报告，`repair --mode codex-catalog-path` 会按当前开关反向改写。
+- **Copilot CLI**：`providers.json` 只在进程环境没有 `COPILOT_PROVIDER_BASE_URL` 时才被读取；排查「自定义供应商不生效」先看环境变量，不要改数据库。
+- **WorkBuddy**：`models.json` 的 `ccSwitchProviderId` 之外条目属用户或 WorkBuddy 自己，只读；切账号前完全退出 WorkBuddy。
+- **隐私过滤器**：只在路由/聚合生效、占位符不可逆；不要用它处理需要按原文定位的配置编辑。
 
 ### MCP `type` 与 Pi 同步（4.0）
 

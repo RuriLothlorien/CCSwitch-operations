@@ -2,6 +2,10 @@
 
 | 症状 | 根因 | 处理 |
 | --- | --- | --- |
+| Codex 桌面版启动报 `No such file or directory (os error 2)` | 桌面版开了「在 WSL 中运行 Codex」，而 `model_catalog_json` 是 Windows 绝对路径；Linux Codex 把 `C:\...` 当相对路径（#9375） | CCS 4.0.29+ 与本技能 v1.6.0+ 在该开关下改回裸文件名 `cc-switch-model-catalog.json`；运行 `check --strict` 确认并 `repair --mode codex-catalog-path` |
+| Copilot 里自定义供应商不出现 | 进程环境中存在 `COPILOT_PROVIDER_BASE_URL`（或 `_TYPE`/`_API_KEY`/`_BEARER_TOKEN`），Copilot 会完全忽略 `providers.json` | 清掉这些环境变量再启动；不要改数据库，也不要把 Copilot 卡当成走路由的卡 |
+| WorkBuddy 切换账号后又被切回去 | WorkBuddy 仍在运行（含托盘/菜单栏），fs.watch 把当前登录写回 | 切换前完全退出 WorkBuddy；账号目录 `user-<uid>-<scope>` 与登录状态绑定，登出时提示词落在数据根 |
+| 开了隐私过滤器后文件编辑对不上原文 | 路由/聚合在转发前把邮箱、Key、IP 等替换成占位符，且替换不可逆；工具结果默认不过滤但可被开启 | 不要把隐私过滤器用于需要按原文匹配的编辑；需要原样内容时关掉过滤或走直连 |
 | CCS 面板中文显示 `???` | PowerShell 5.1 管道把中文按 GBK 传给 `python -` | 用 `scripts/ccs_db.py`（内联 argv 或 `--*-file`），禁止管道传中文 |
 | `.ps1` 中文乱码 / 解析报错 | 无 BOM UTF-8 被 PS 5.1 按 GBK 解码 | 存为 UTF-8 with BOM |
 | Codex 里 MCP 工具全部不可见 | 模型目录 `supports_search_tool:true` + `tool_mode:null`（DeepSeek 的 Responses API 不提供 `tool_search`，Codex 因此把 MCP 工具全部延迟隐藏） | 改目录为 `supports_search_tool:false`；DeepSeek 内置预设自 3.20.2 起已声明 false，存量卡**切走再切回**刷新 catalog 即恢复 |

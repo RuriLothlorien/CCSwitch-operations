@@ -7,7 +7,7 @@
 
 > [English](README.en.md) | 简体中文
 
-可移植、可发布的 **CC Switch（CCS）** 操作技能：安全地维护全局提示词、Skills、MCP 服务器、供应商与 Codex 模型目录，覆盖 CCS 管理的十四个应用。
+可移植、可发布的 **CC Switch（CCS）** 操作技能：安全地维护全局提示词、Skills、MCP 服务器、供应商与 Codex 模型目录，覆盖 CCS 管理的十六个应用。
 
 本包自包含：**没有安装脚本，也不依赖任何外部辅助脚本**。安装方式只有两种——把技能目录解压/复制到 agent 的 skills 目录，或在 CC Switch 中从 zip 导入。
 
@@ -29,7 +29,7 @@ CC Switch 的配置分散在数据库、`settings.json` 和多个应用的 live 
 这个技能把“安全维护”沉淀成一套方法论和工具：
 
 - **不用碰数据库**：`mcp-upsert`、`prompt-set`、`skill-upsert`、`provider-block`、`provider-env`、`set-flags` 覆盖日常操作，全部由工具代劳
-- **按需维护，十四个 agent 都覆盖**：Codex、Claude Code、Claude Desktop、Gemini、Grok Build、OpenCode、OpenClaw、Hermes、Pi、MiniMax Code、Kimi Code、Antigravity CLI、Oh My Pi、DeepSeek Harness 的配置边界一次讲清；只改某一个 agent 或批量同步都可以，不用再逐个手工确认
+- **按需维护，十六个 agent 都覆盖**：Codex、Claude Code、Claude Desktop、Gemini、Grok Build、OpenCode、OpenClaw、Hermes、Pi、MiniMax Code、Kimi Code、Antigravity CLI、Oh My Pi、DeepSeek Harness、GitHub Copilot CLI、腾讯 WorkBuddy 的配置边界一次讲清；只改某一个 agent 或批量同步都可以，不用再逐个手工确认
 - **先备份、后修改、再校验**：备份 → 停止 CCS → 修改 → 校验 → 重启 → 复核，照着流程走就不会漏
 - **自动发现路径、跨平台**：支持 `CC_SWITCH_HOME` / `~/.cc-switch`，Windows / macOS / Linux 通用
 - **中文内容安全**：UTF-8 安全读写，不再担心乱码
@@ -38,12 +38,12 @@ CC Switch 的配置分散在数据库、`settings.json` 和多个应用的 live 
 
 ## 版本兼容
 
-- 本技能基于 **CC Switch 4.0.28 / Codex 0.167**（数据库 schema v24）设计与测试。4.0.24–4.0.28 没有数据库迁移；4.0.20 把 v22 升到 v23（MCP `enabled_omp`），4.0.22 把 v23 升到 v24（MCP/Skills `enabled_dsh` 与内部 `session_log_sync.parser_state`）。迁移后旧版 CCS 会以“数据库版本过新”拒绝打开——升级前请保留自动备份。
-- 历史库仍按列兼容读取：v17（3.20.0）、v18（3.20.1–3.20.3）、v19（3.20.4）、v20（4.0.16–4.0.17）、v21（4.0.18）、v22（4.0.19）、v23（4.0.20–4.0.21）；一旦升级到 v24，旧版 CCS 将无法直接打开数据库。
+- 本技能基于 **CC Switch 4.0.32 / Codex 0.167**（数据库 schema v26）设计与测试。4.0.30 与 4.0.32 没有数据库迁移；4.0.20 把 v22 升到 v23（MCP `enabled_omp`），4.0.22 把 v23 升到 v24（MCP/Skills `enabled_dsh` 与内部 `session_log_sync.parser_state`），4.0.29 把 v24 升到 v25（MCP/Skills `enabled_copilot`），4.0.31 把 v25 升到 v26（MCP/Skills `enabled_workbuddy`）。迁移后旧版 CCS 会以“数据库版本过新”拒绝打开——升级前请保留自动备份。
+- 历史库仍按列兼容读取：v17（3.20.0）、v18（3.20.1–3.20.3）、v19（3.20.4）、v20（4.0.16–4.0.17）、v21（4.0.18）、v22（4.0.19）、v23（4.0.20–4.0.21）、v24（4.0.22–4.0.28）；一旦升级到 v25/v26，旧版 CCS 将无法直接打开数据库。
 - CCS 4.0 行为变化：**通用配置片段功能已移除**（共享设置直接留在客户端配置文件里并跨切换保留；临时在客户端选的模型/推理强度，切走再切回会恢复为供应商设定值）；新增**聚合（Stack）模式**（Claude Code、Codex，以及 4.0.13 起的 Claude Desktop；按所选模型分发、不提供故障转移，状态在设备本地 `~/.cc-switch/live-state.json`，Claude Code 的发布模型在 `providers.meta.stackModels`）；配置写入改为“只替换关键字段”；MCP 支持 Pi（`~/.pi/agent/mcp.json`，v20 的 `enabled_pi`）；Codex 0.158+ 的 MCP `type` 字段问题已修（CCS 4.0 写入时剥离）；可选压缩 Codex 历史会话（写 `[features] local_thread_store_compression`）。
 - **`common-config` 命令只适用于 CCS ≤ 3.20.4（schema ≤ v19）**；在 v20 上所有 `common-config` 子命令都会被明确拒绝并提示新做法：共享键写客户端 live 配置，供应商专属字段写卡片（`provider-block` / `provider-set-key` / `provider-env`）。
-- mcode 需要 3.20.4+；Pi 需要 4.0+；Antigravity（`--enable-agy`）需要 4.0.18+；Kimi Code（`--enable-kimi`）需要 4.0.19+；Oh My Pi（`--enable-omp`）需要 4.0.20+；DeepSeek Harness（`--enable-dsh`）需要 4.0.22+。DSH 的配置目录按 **CCS 设置 → `DSH_HOME` → `~/.dsh`** 解析，也可用 `--dsh-home` 显式指定。
-- Kimi/OMP/mcode 的结构化供应商、Agy 的启动终端供应商由 CCS 界面管理；DeepSeek Harness 使用专用的 `dsh-provider-get/set/remove`，会同时原子更新所有 profile、`.credentials.yaml` 和数据库，并兼容 4.0.24+ 的模型输入模态限制与 4.0.26+ 的 headless 凭据存储。
+- mcode 需要 3.20.4+；Pi 需要 4.0+；Antigravity（`--enable-agy`）需要 4.0.18+；Kimi Code（`--enable-kimi`）需要 4.0.19+；Oh My Pi（`--enable-omp`）需要 4.0.20+；DeepSeek Harness（`--enable-dsh`）需要 4.0.22+；GitHub Copilot CLI（`--enable-copilot`）需要 4.0.29+（schema v25）；腾讯 WorkBuddy（`--enable-workbuddy`）需要 4.0.31+（schema v26）。DSH 的配置目录按 **CCS 设置 → `DSH_HOME` → `~/.dsh`** 解析，也可用 `--dsh-home` 显式指定；Copilot 数据目录按 `COPILOT_HOME` → `~/.copilot`、WorkBuddy 按 `WORKBUDDY_CONFIG_DIR` → `~/.workbuddy` 解析，`doctor` 会打印最终路径与来源。
+- Kimi/OMP/mcode/Copilot/WorkBuddy 的结构化供应商、Agy 的启动终端供应商由 CCS 界面管理（Copilot 卡永不经过 CCS 路由；WorkBuddy 切换账号前须完全退出客户端）；DeepSeek Harness 使用专用的 `dsh-provider-get/set/remove`，会同时原子更新所有 profile、`.credentials.yaml` 和数据库，并兼容 4.0.24+ 的模型输入模态限制与 4.0.26+ 的 headless 凭据存储。
 - 配置文件通过软链接维护时可以直接使用本技能：4.0.27 对齐后的写入会更新链接目标，不会把链接替换成普通文件。
 - Codex 0.167 已移除 `disable_response_storage`。`check --strict` 会检测遗留行，`repair --mode codex-0167` 可从 live 配置或 provider 卡中清理；CCS 4.0.28 下次切换也会自动清掉 live 中的旧行。
 - 4.0.28 的路由模式可能故意保留内置 `openai` 选择器并写 `openai_base_url` 指向 CCS 本地路由。这属于会话分组契约，不是旧的密钥误路由；本技能的 `codex-0149` 修复会识别并保持该形态。
@@ -55,9 +55,9 @@ CC Switch 的配置分散在数据库、`settings.json` 和多个应用的 live 
 
 - 安全写入流程：备份 → 停止 CCS → 修改 → 校验 → 重启 → 复核。
 - 面向中文内容安全的数据库辅助脚本（`scripts/ccs_db.py`），支持 UTF-8 文件与内联中文参数。
-- 覆盖全部 14 个受管应用：codex、claude、claude-desktop、gemini、grokbuild、opencode、openclaw、hermes、pi、mcode、kimi、agy、omp、dsh。
+- 覆盖全部 16 个受管应用：codex、claude、claude-desktop、gemini、grokbuild、opencode、openclaw、hermes、pi、mcode、kimi、agy、omp、dsh、copilot、workbuddy。
 - 跨平台：自动发现 `CC_SWITCH_HOME` / `~/.cc-switch`，文档同时给出 PowerShell 与 bash 示例。
-- `doctor` 子命令输出解析到的路径、DSH 配置目录、数据库 schema、14 个应用及其供应商状态、MCP/Skills 标志列和当前模式；它还会提示状态文件损坏、Codex 官方登录保留开关、会话分组风险、暂停官方登录是否可用于当前模式、额度保护的最终有效状态、相对模型目录指针，以及 OMP 技能“存在即启用”的差异。
+- `doctor` 子命令输出解析到的路径、DSH/Copilot/WorkBuddy 配置目录、数据库 schema、16 个应用及其供应商状态、MCP/Skills 标志列和当前模式；它还会提示状态文件损坏、Codex 官方登录保留开关、会话分组风险、暂停官方登录是否可用于当前模式、额度保护的最终有效状态、相对模型目录指针，以及 OMP 技能“存在即启用”的差异。
 
 ## 工作原理
 
@@ -94,7 +94,7 @@ CCSwitch-operations/
 ├─ assets/ccswitch-operations-banner.png  # 社交预览图（仅仓库内）
 ├─ references/
 │  ├─ architecture.md          # 架构速查
-│  ├─ apps.md                  # 十四大受管应用矩阵
+│  ├─ apps.md                  # 十六大受管应用矩阵
 │  ├─ operations.md            # 操作模板（PowerShell + bash）
 │  ├─ pitfalls.md              # 已踩过的坑
 │  ├─ migration.md             # 官方版本行为变化
@@ -163,7 +163,7 @@ python scripts/ccs_db.py repair --target config.toml --mode codex-0167  # dry-ru
 python scripts/ccs_db.py mcp-upsert --name my-server --config-file server_config.json --enable-codex --enable-claude
 python scripts/ccs_db.py mcp-upsert --name my-server --config-file server_config.json --enable-pi   # Pi 1.0（CCS 4.0+）
 python scripts/ccs_db.py mcp-upsert --name my-server --config-file server_config.json --enable-agy --enable-kimi  # CCS 4.0.19+
-python scripts/ccs_db.py mcp-upsert --name my-server --config-file server_config.json --enable-omp --enable-dsh    # CCS 4.0.28
+python scripts/ccs_db.py mcp-upsert --name my-server --config-file server_config.json --enable-omp --enable-dsh    # CCS 4.0.28+
 python scripts/ccs_db.py dsh-provider-get --provider-id <id>
 python scripts/ccs_db.py dsh-provider-set --provider-id <id> --config-file dsh-provider.json --apply
 python scripts/ccs_db.py dsh-provider-remove --provider-id <id> --apply
@@ -182,15 +182,15 @@ python scripts/ccs_db.py set-flags --table skills --name my-skill --mcode 1
 如需手动打包为可分发的 zip（例如导入 CC Switch 或手动分享）：
 
 ```bash
-python scripts/build-zip.py --version 1.5.3
+python scripts/build-zip.py --version 1.6.0
 ```
 
-输出：`dist/CCSwitch-operations-v1.5.3.zip`。
+输出：`dist/CCSwitch-operations-v1.6.0.zip`。
 
 ## 文档
 
 - `references/architecture.md` — 架构速查（表结构、生效链路）
-- `references/apps.md` — 十四大受管应用矩阵
+- `references/apps.md` — 十六大受管应用矩阵
 - `references/operations.md` — 操作命令模板（PowerShell + bash）
 - `references/pitfalls.md` — 已踩过的坑
 - `references/migration.md` — 官方版本行为变化

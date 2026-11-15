@@ -1,6 +1,6 @@
 # CC Switch 架构速查
 
-## 数据库 `<cc-home>/cc-switch.db`（CCS 4.0.22–4.0.28 = schema v24；4.0.20–4.0.21 = v23；4.0.19 = v22；4.0.18 = v21；4.0.16–4.0.17 = v20；CCS 3.20.4 = v19；3.20.1–3.20.3 = v18；3.20.0 = v17）
+## 数据库 `<cc-home>/cc-switch.db`（CCS 4.0.31–4.0.32 = schema v26；4.0.29–4.0.30 = v25；4.0.22–4.0.28 = v24；4.0.20–4.0.21 = v23；4.0.19 = v22；4.0.18 = v21；4.0.16–4.0.17 = v20；CCS 3.20.4 = v19；3.20.1–3.20.3 = v18；3.20.0 = v17）
 
 `cc-home` 解析顺序：`CC_SWITCH_HOME` 环境变量 → `~/.cc-switch`。
 
@@ -8,10 +8,10 @@
 
 | 表 | 作用 | 关键列 |
 | --- | --- | --- |
-| providers | 各应用下的供应商 | app_type(14 个应用), settings_config(JSON：`config` TOML / `env` / `modelCatalog`；mcode `name/kind/enabled/api/options/models`；kimi `provider/models`；agy 终端启动；omp `models.yml` 卡片；dsh `api/options/models` 卡片), provider_type, is_current, meta |
-| prompts | 全局提示词 | app_type(codex/claude/claude-desktop/gemini/grokbuild/opencode/openclaw/hermes/pi/mcode/kimi/agy), name(`全局`), content, enabled |
-| skills | skill 管理 | id(`local:<name>`), name, directory, repo_owner/repo_name/repo_branch/readme_url, enabled_codex/claude/gemini/opencode/hermes/grokbuild/mcode/agy/kimi/dsh, installed_at, content_hash；Pi/OMP 按存在判定，v24 新增 `enabled_dsh` |
-| mcp_servers | MCP 面板 | id(slug), name, server_config(JSON), description, tags, enabled_codex/claude/gemini/opencode/hermes/grokbuild/mcode/pi/agy/kimi/omp/dsh（v23 `enabled_omp`、v24 `enabled_dsh`）。只放用户自建/CCS 管理的服务器 |
+| providers | 各应用下的供应商 | app_type(16 个应用), settings_config(JSON：`config` TOML / `env` / `modelCatalog`；mcode `name/kind/enabled/api/options/models`；kimi `provider/models`；agy 终端启动；omp `models.yml` 卡片；dsh `api/options/models` 卡片；copilot `{provider, models, reasoningEffort}`；workbuddy 模型条目), provider_type, is_current, meta |
+| prompts | 全局提示词 | app_type(codex/claude/claude-desktop/gemini/grokbuild/opencode/openclaw/hermes/pi/mcode/kimi/agy/omp/dsh/copilot/workbuddy；Claude Desktop 不支持), name(`全局`), content, enabled |
+| skills | skill 管理 | id(`local:<name>`), name, directory, repo_owner/repo_name/repo_branch/readme_url, enabled_codex/claude/gemini/opencode/hermes/grokbuild/mcode/agy/kimi/dsh/copilot/workbuddy, installed_at, content_hash；Pi/OMP 按存在判定，v24 新增 `enabled_dsh`、v25 `enabled_copilot`、v26 `enabled_workbuddy` |
+| mcp_servers | MCP 面板 | id(slug), name, server_config(JSON), description, tags, enabled_codex/claude/gemini/opencode/hermes/grokbuild/mcode/pi/agy/kimi/omp/dsh/copilot/workbuddy（v23 `enabled_omp`、v24 `enabled_dsh`、v25 `enabled_copilot`、v26 `enabled_workbuddy`）。只放用户自建/CCS 管理的服务器 |
 | settings | 通用配置 | key(common_config_codex/common_config_claude/claude_desktop_gateway_token/official_providers_seeded/...), value |
 
 ### CCS 自管表（不要手改）
@@ -25,6 +25,8 @@
 - 其他：`visibleApps`、`enableLocalProxy`、`enableFailoverToggle`、`preserveCodexOfficialAuthOnSwitch`、`codexQuotaProtection`、`codexProxyWithoutOfficialLogin`、`unifyCodexSessionHistory`、`unifyCodexMigrateExisting`、`codexStackClassicTools`、`enableClaudePluginIntegration`、`preferredTerminal` 等。4.0.15 会在读取到截断/BOM/尾部损坏时先备份 `settings.json.broken-<time>.bak`，再尽力保留可解析字段；`doctor` 对无法解析的文件给出告警。
 - `codexQuotaProtection` 在 4.0.28 改为默认开启一次：若 `localMigrations.codexQuotaProtectionDefaultOnV1` 不存在，运行时使用 `enabled=true`，即使旧 `settings.json` 仍写着 false；下一次保存才把迁移标记和值写入磁盘。`doctor` 显示运行时有效值。
 - `dshConfigDir`：DeepSeek Harness 主目录覆盖（4.0.26+，也可填 WSL/UNC 路径）。解析顺序是 CCS 设置 → `DSH_HOME` → `~/.dsh`；本技能的 `--dsh-home` 是对全部三者的显式覆盖。
+- `privacyFilter`（4.0.30+，默认关闭）：仅在**路由/聚合**转发前替换邮箱、手机号、身份证、银行卡、IPv4（回环除外）与 API Key/Token/私钥，直连与工具结果（默认）不处理；占位符不可逆，会让按原文定位的编辑对不上。
+- 4.0.32 新增「自动下载更新」与「IP 检测」均为 UI/设备级设置，不进备份，也不影响技能写入。
 
 ## 生效链路
 
@@ -42,6 +44,8 @@
 - **统一 Codex 会话历史注入**：开启 `unifyCodexSessionHistory` 时，官方卡的 live 配置会注入 `[model_providers.custom]`（`name="OpenAI"`、`requires_openai_auth=true`、`supports_websockets=true`、`wire_api="responses"`）；只有形态完全匹配时才会被剥离，第三方/用户自定义的同名 `custom` 表原样保留。
 - **Codex `requires_openai_auth`（3.20.2）**：代理托管 OAuth 卡（`providers.meta.provider_type` = `xai_oauth` / `github_copilot`）的活跃表被强制为 `false`（令牌由本地代理逐请求注入）；接管写入会按 Codex 观察到的登录状态覆盖该标志（`file` 跟随 auth.json、`ephemeral` 记未登录、`keyring`/`auto` 保留原值）；**Codex OAuth 例外**——官方登录即其凭据。
 - **Codex 密钥存储（3.20.1+，3.20.4 修复清空缺陷）**：DB 侧规范位置是 `providers.settings_config.auth.OPENAI_API_KEY`，live 侧是 `[model_providers.<id>].experimental_bearer_token`；3.20.4 之前编辑/切走可能把 auth 清空（#7434），已在 3.20.4 修复但旧值不恢复。本技能 `check --strict` / `doctor --audit` 报告“auth 为空但 provider 表仍有 token”的可恢复形态，`repair --target provider --mode codex-key --apply` 从 provider 表回填（官方卡与代理托管 OAuth 卡跳过）。
+- **GitHub Copilot CLI（4.0.29+，`copilot`）**：累加模式，但**永不经过 CCS 本地路由/聚合**。BYOK 供应商写在 `<COPILOT_HOME>/providers.json`（`COPILOT_PROVIDERS_CONFIG` 可改路径），卡片 id 同时是供应商名和 `/model` 前缀；模型不允许引用不存在的供应商，写入前整份校验。MCP → `mcp-config.json`（`mcpServers`，选项另存 `copilot-mcp-options.json`），Skills → `skills/`，提示词 → `copilot-instructions.md`，会话 → `session-state/<id>/`。进程环境里存在 `COPILOT_PROVIDER_BASE_URL` 时 Copilot 完全忽略 `providers.json`，CCS 打开终端时会清掉 `COPILOT_PROVIDER_*`。
+- **Tencent WorkBuddy（4.0.31+，`workbuddy`）**：累加模式，仅 OpenAI Chat Completions。数据目录 `WORKBUDDY_CONFIG_DIR` 或 `~/.workbuddy`；供应商被平铺成 `models.json` 的模型条目（`{models:[{id,name,vendor,url,apiKey}], availableModels:[...]}`），`ccSwitchProviderId` 标记 CCS 归属，`vendor/url/apiKey/api` 从供应商层复制到每条；模型 id 兼作查找键、上游模型名与菜单标签后半段，只能属于一张卡。MCP → `mcp.json`，Skills → `skills/`，提示词 → 账号目录 `user-<uid>-<scope>` 下的 `MEMORY.md`（桌面端设了 `CODEBUDDY_DISABLE_SYSTEM_REMINDER_MD=1`，不注入 `CODEBUDDY.md`；每次最多 4000 字）。官方卡只还原授权账号登录文件，从不写 `models.json`。**切账号前必须完全退出 WorkBuddy。**
 - **MiniMax Code（3.20.4，`mcode`）**：累加模式；供应商是 `~/.minimax/config.yaml` 里的 `custom_provider` 条目（DB `settings_config` 为 JSON：`name/kind/enabled/api/options/models`）；MCP ↔ `~/.minimax/mcp.json`；Skills → `~/.minimax/skills/`；提示词 → `~/.minimax/AGENTS.md`（单条 ≤32 KiB，UTF-8 字节）。数据目录按 `MINIMAX_DATA_DIR` → `MAVIS_DATA_DIR` → `~/.minimax` 解析。CCS 不参与它的本地代理接管、故障转移、托盘、通用配置与 Profiles；默认模型、登录与会话删除也归 MiniMax 自己。
 - **三种模式（4.0）**：每个支持代理的应用处于 **直连 / 路由 / 聚合（Stack）** 之一。聚合从 4.0.13 起支持 Claude Code、Codex 与 Claude Desktop：把多家供应商的模型发布进客户端模型列表，按模型经本地路由分发，无故障转移；状态在设备本地 `~/.cc-switch/live-state.json`（**不在 `CC_SWITCH_HOME` 下、不同步**），Claude Code 各家的发布模型在 `providers.meta.stackModels`。文件里的内部枚举是 `direct/proxy`，聚合由 `stack.enabled` 表示；CCS 界面和本技能 `doctor` 把 `proxy` 显示为 `route`。
 - **配置写入（4.0 重写，4.0.27 软链接修复）**：切供应商只替换地址/Key/模型等关键字段，其余 live 内容（顶层键、`[plugins]`/`[projects]`、`[mcp_servers.*]`、注释、标记）逐字节保留；供应商编辑器的“切换后预览”由 `editor_view` 投影生成，不再做整文 parse→stringify。配置文件是文件软链接时，4.0.27 会写链接目标并保留链接；本技能的 DSH/修复写入遵循同一规则。
@@ -55,7 +59,7 @@
 - **Codex 会话压缩（4.0.7）**：开关直接改 `config.toml`，写入 `[features] local_thread_store_compression = true`；Codex 启动时把 7 天以上没动过的会话压成同名 `.jsonl.zst`（CCS 不另存该设置；直接读 `.jsonl` 的第三方工具可能读不到压缩会话）。
 - **恢复 `.db` 备份（3.20 行为变化）**：恢复后会按新库**重写所有受管应用的 live 配置（Pi 除外）**，而旧版只改数据库——恢复后仍需复核 MCP 三处一致。
 
-## 受管应用（CCS 4.0.28 共 14 个）与 Skills 目录
+## 受管应用（CCS 4.0.32 共 16 个）与 Skills 目录
 
 见 references/apps.md 的完整矩阵。
 
@@ -64,5 +68,7 @@
 - 源：`<cc-home>/skills/<name>`（`skillStorageLocation=cc_switch` 时）
 - 各受管应用：`~/.<app>/skills/<name>`，形态由 `skillSyncMethod` 决定（`auto` 优先 symlink、失败或已有普通目录时回退 copy；`symlink` 恒为链接；`copy` 恒为复制）
 - `skills.content_hash` 按完整目录计算：相对路径排序，忽略隐藏文件、`__pycache__/` 与 `*.pyc`。仅运行 Skill 生成 Python 字节码不应造成“可更新”假阳性。
+- GitHub Copilot CLI：`<COPILOT_HOME>/skills/<name>`（`COPILOT_HOME` 或 `~/.copilot`）
+- Tencent WorkBuddy：`<WORKBUDDY_CONFIG_DIR>/skills/<name>`（`WORKBUDDY_CONFIG_DIR` 或 `~/.workbuddy`）
 - MiniMax Code：`~/.minimax/skills/<name>`（数据目录按 `MINIMAX_DATA_DIR` → `MAVIS_DATA_DIR` → `~/.minimax` 解析；Pi 式归属检查，不动非 CCS 所有的同名 skill）
 - Claude Desktop 3P：`<local-app-data>\Claude-3p\local-agent-mode-sessions\skills-plugin\{org}\{account}\skills\<name>`（Junction）+ manifest.json 条目（`creatorType:"user"`, `syncManaged:false`, `enabled:true`）+ `cc-switch-managed.json`（管理标记）

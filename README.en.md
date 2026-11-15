@@ -7,7 +7,7 @@
 
 > [简体中文](README.md) | English
 
-A portable, publishable skill for operating **CC Switch (CCS)** safely: global prompts, skills, MCP servers, providers, and the Codex model catalog, across the fourteen apps CCS manages.
+A portable, publishable skill for operating **CC Switch (CCS)** safely: global prompts, skills, MCP servers, providers, and the Codex model catalog, across the sixteen apps CCS manages.
 
 The package is self-contained: no installer script, no external helper dependencies. Installation is just copying/unzipping the skill folder into an agent's skills directory (or importing the zip from CC Switch).
 
@@ -29,7 +29,7 @@ CC Switch spreads its configuration across a database, `settings.json`, and each
 This skill turns safe maintenance into one repeatable workflow:
 
 - **No database access required**: `mcp-upsert`, `prompt-set`, `skill-upsert`, `provider-block`, `provider-env`, and `set-flags` cover everyday tasks
-- **Maintain per agent or in bulk, all fourteen covered**: Codex, Claude Code, Claude Desktop, Gemini, Grok Build, OpenCode, OpenClaw, Hermes, Pi, MiniMax Code, Kimi Code, Antigravity CLI, Oh My Pi, and DeepSeek Harness — update just one agent or several at once, no more checking each one by hand
+- **Maintain per agent or in bulk, all sixteen covered**: Codex, Claude Code, Claude Desktop, Gemini, Grok Build, OpenCode, OpenClaw, Hermes, Pi, MiniMax Code, Kimi Code, Antigravity CLI, Oh My Pi, DeepSeek Harness, GitHub Copilot CLI, and Tencent WorkBuddy — update just one agent or several at once, no more checking each one by hand
 - **Backup first, verify after**: backup → stop CCS → edit → validate → restart → re-check
 - **Automatic path discovery, cross-platform**: honors `CC_SWITCH_HOME` / `~/.cc-switch` on Windows, macOS, and Linux
 - **Chinese-safe by design**: UTF-8-safe reads and writes
@@ -38,12 +38,12 @@ This skill turns safe maintenance into one repeatable workflow:
 
 ## Compatibility
 
-- Designed and tested with **CC Switch 4.0.28 / Codex 0.167** (database schema v24). 4.0.24–4.0.28 do not migrate the database; 4.0.20 moved v22 to v23 with MCP `enabled_omp`, and 4.0.22 moved v23 to v24 with MCP/Skills `enabled_dsh` and internal `session_log_sync.parser_state`. Older releases cannot open the migrated database.
-- Historical databases remain readable where required columns exist: v17 (3.20.0), v18 (3.20.1–3.20.3), v19 (3.20.4), v20 (4.0.16–4.0.17), v21 (4.0.18), v22 (4.0.19), and v23 (4.0.20–4.0.21).
+- Designed and tested with **CC Switch 4.0.32 / Codex 0.167** (database schema v26). 4.0.30 and 4.0.32 do not migrate the database; 4.0.20 moved v22 to v23 with MCP `enabled_omp`, 4.0.22 moved v23 to v24 with MCP/Skills `enabled_dsh` and internal `session_log_sync.parser_state`, 4.0.29 moved v24 to v25 with MCP/Skills `enabled_copilot`, and 4.0.31 moved v25 to v26 with MCP/Skills `enabled_workbuddy`. Older releases cannot open the migrated database.
+- Historical databases remain readable where required columns exist: v17 (3.20.0), v18 (3.20.1–3.20.3), v19 (3.20.4), v20 (4.0.16–4.0.17), v21 (4.0.18), v22 (4.0.19), v23 (4.0.20–4.0.21), and v24 (4.0.22–4.0.28).
 - What 4.0 changes: **the common-config snippet feature is gone** (shared settings now live in the client config file and survive provider switches; a model or effort picked inside the client reverts to the provider's value on switch); a third mode, **stack/aggregation** (Claude Code and Codex, plus Claude Desktop since 4.0.13; per-model dispatch, no failover; state in the device-local `~/.cc-switch/live-state.json`, Claude Code models in `providers.meta.stackModels`); config writing replaces only key fields (the #6719 fix); MCP syncs to Pi (`~/.pi/agent/mcp.json`, `enabled_pi`); Codex 0.158+'s MCP `type` rejection is fixed (CCS 4.0 strips it on write); optional Codex session compression writes `[features] local_thread_store_compression`; GitHub Copilot accounts work on Codex (router on).
 - **`common-config` only works on CCS ≤ 3.20.4 (schema ≤ v19)**; on v20 every `common-config` subcommand is refused with guidance: shared keys belong in the client live config, provider-specific fields in the card (`provider-block` / `provider-set-key` / `provider-env`).
-- mcode needs 3.20.4+; Pi needs 4.0+; Antigravity (`--enable-agy`) needs 4.0.18+; Kimi Code (`--enable-kimi`) needs 4.0.19+; Oh My Pi (`--enable-omp`) needs 4.0.20+; DeepSeek Harness (`--enable-dsh`) needs 4.0.22+. DSH resolves its directory as **CCS setting → `DSH_HOME` → `~/.dsh`**; `--dsh-home` is an explicit helper override.
-- Kimi/OMP/mcode provider structures and Agy terminal-launch cards are managed in the CC Switch UI. DeepSeek Harness uses `dsh-provider-get/set/remove`, which atomically updates every profile patch, `.credentials.yaml`, and the database row, including the 4.0.24+ input-modality rules and 4.0.26+ headless credential store.
+- mcode needs 3.20.4+; Pi needs 4.0+; Antigravity (`--enable-agy`) needs 4.0.18+; Kimi Code (`--enable-kimi`) needs 4.0.19+; Oh My Pi (`--enable-omp`) needs 4.0.20+; DeepSeek Harness (`--enable-dsh`) needs 4.0.22+; GitHub Copilot CLI (`--enable-copilot`) needs 4.0.29+ (schema v25); Tencent WorkBuddy (`--enable-workbuddy`) needs 4.0.31+ (schema v26). DSH resolves its directory as **CCS setting → `DSH_HOME` → `~/.dsh`** with `--dsh-home` as an explicit helper override; Copilot resolves `COPILOT_HOME` → `~/.copilot` and WorkBuddy `WORKBUDDY_CONFIG_DIR` → `~/.workbuddy`, and `doctor` prints the resolved path and source.
+- Kimi/OMP/mcode/Copilot/WorkBuddy provider structures and Agy terminal-launch cards are managed in the CC Switch UI (Copilot cards never go through the CCS router, and WorkBuddy must be fully quit before switching accounts). DeepSeek Harness uses `dsh-provider-get/set/remove`, which atomically updates every profile patch, `.credentials.yaml`, and the database row, including the 4.0.24+ input-modality rules and 4.0.26+ headless credential store.
 - Dotfiles-managed config files may be symlinks: the 4.0.27-aligned writer updates the link target instead of replacing the link with a regular file.
 - Codex 0.167 removed `disable_response_storage`. `check --strict` detects legacy lines, and `repair --mode codex-0167` removes them from live config or provider cards; CC Switch 4.0.28 also clears the live line on its next switch.
 - A 4.0.28 route may intentionally keep the built-in `openai` selector and point `openai_base_url` at the local CC Switch router. This is a session-bucket contract, not the old keyless misroute; the `codex-0149` repair recognizes and preserves it.
@@ -56,9 +56,9 @@ This skill turns safe maintenance into one repeatable workflow:
 
 - Safe write workflow: backup → stop CCS → edit → validate → restart → re-check.
 - UTF-8-safe database helper (`scripts/ccs_db.py`) for Chinese content.
-- Covers all 14 managed apps: codex, claude, claude-desktop, gemini, grokbuild, opencode, openclaw, hermes, pi, mcode, kimi, agy, omp, dsh.
+- Covers all 16 managed apps: codex, claude, claude-desktop, gemini, grokbuild, opencode, openclaw, hermes, pi, mcode, kimi, agy, omp, dsh, copilot, workbuddy.
 - Cross-platform: `CC_SWITCH_HOME` / `~/.cc-switch` discovery, PowerShell and bash examples.
-- `doctor` prints resolved paths, the DSH config directory, the schema, all 14 apps and provider counts, MCP/Skills flag availability, and each app's current mode; it also reports malformed state, session-group risks, whether pause-official-login is usable in the current mode, the effective quota-protection state, relative model-catalog pointers, OMP's exists-equals-enabled skill semantics, and health warnings.
+- `doctor` prints resolved paths, the DSH/Copilot/WorkBuddy config directories, the schema, all 16 apps and provider counts, MCP/Skills flag availability, and each app's current mode; it also reports malformed state, session-group risks, whether pause-official-login is usable in the current mode, the effective quota-protection state, relative model-catalog pointers, OMP's exists-equals-enabled skill semantics, and health warnings.
 
 ## How it works
 
@@ -95,7 +95,7 @@ CCSwitch-operations/
 ├─ assets/ccswitch-operations-banner.png  # Social preview banner (repo only)
 ├─ references/
 │  ├─ architecture.md          # Architecture quick reference
-│  ├─ apps.md                  # The 14 managed apps matrix
+│  ├─ apps.md                  # The 16 managed apps matrix
 │  ├─ operations.md            # Command templates (PowerShell + bash)
 │  ├─ pitfalls.md              # Known pitfalls
 │  ├─ migration.md             # Official CCS version behavior changes
@@ -184,10 +184,10 @@ Set `CC_SWITCH_HOME` to override the CC Switch home directory (default: `~/.cc-s
 To package the skill into a distributable zip (for example to install it in CC Switch or share it manually):
 
 ```bash
-python scripts/build-zip.py --version 1.5.3
+python scripts/build-zip.py --version 1.6.0
 ```
 
-Output: `dist/CCSwitch-operations-v1.5.3.zip`.
+Output: `dist/CCSwitch-operations-v1.6.0.zip`.
 
 ## License
 

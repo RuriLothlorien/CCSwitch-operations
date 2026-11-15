@@ -96,6 +96,8 @@ APP_TYPES = (
     "agy",
     "omp",
     "dsh",
+    "copilot",
+    "workbuddy",
 )
 
 # CC Switch 4.0 (schema v20) removed the common-config snippet; the DB may
@@ -129,6 +131,8 @@ FLAG_COLUMNS = (
     ("kimi", "enabled_kimi"),
     ("omp", "enabled_omp"),
     ("dsh", "enabled_dsh"),
+    ("copilot", "enabled_copilot"),
+    ("workbuddy", "enabled_workbuddy"),
 )
 
 # Only these app types have a common-config snippet and the per-provider
@@ -533,6 +537,20 @@ def _reject_structured_provider_edit(app_type):
             "provider database row. Use 'dsh-provider-get/set/remove' for this app, or the CC "
             "Switch UI; provider-block/provider-env/provider-set-key do not support dsh."
         )
+    if app_type == "copilot":
+        raise SystemExit(
+            "GitHub Copilot CLI BYOK providers live in <COPILOT_HOME>/providers.json as one "
+            "provider plus its models, validated as a whole document before CCS writes it; this "
+            "helper manages copilot prompts, skills and MCP flags only. Use the CC Switch card; "
+            "note that copilot cards never go through the CCS router."
+        )
+    if app_type == "workbuddy":
+        raise SystemExit(
+            "Tencent WorkBuddy providers are flattened into <WORKBUDDY_CONFIG_DIR>/models.json "
+            "entries that each carry their own url/apiKey, tagged with ccSwitchProviderId; this "
+            "helper manages workbuddy prompts, skills and MCP flags only. Use the CC Switch card "
+            "and fully quit WorkBuddy before switching accounts."
+        )
 
 
 _YAML_SAFE_KEY = re.compile(r"^[A-Za-z_][A-Za-z0-9_.-]*$")
@@ -746,6 +764,87 @@ def resolve_dsh_home(args, cc_home=None, strict_settings=True):
 
 def dsh_home(args, cc_home=None):
     return resolve_dsh_home(args, cc_home=cc_home)[0]
+
+
+def copilot_home():
+    """GitHub Copilot CLI data dir (CCS 4.0.29+): `COPILOT_HOME`, else `~/.copilot`."""
+    env = os.environ.get("COPILOT_HOME")
+    if env:
+        return Path(env).expanduser(), "COPILOT_HOME"
+    return Path.home() / ".copilot", "default"
+
+
+def copilot_providers_path(home):
+    """Copilot BYOK file; `COPILOT_PROVIDERS_CONFIG` overrides the whole path."""
+    env = os.environ.get("COPILOT_PROVIDERS_CONFIG")
+    if env:
+        return Path(env).expanduser(), "COPILOT_PROVIDERS_CONFIG"
+    return Path(home) / "providers.json", "default"
+
+
+def workbuddy_home():
+    """Tencent WorkBuddy data dir (CCS 4.0.31+): `WORKBUDDY_CONFIG_DIR`, else `~/.workbuddy`."""
+    env = os.environ.get("WORKBUDDY_CONFIG_DIR")
+    if env:
+        return Path(env).expanduser(), "WORKBUDDY_CONFIG_DIR"
+    return Path.home() / ".workbuddy", "default"
+
+
+def workbuddy_system_shared_data_dir():
+    """Shared CodeBuddy data root that holds the desktop account info file.
+
+    Returns `None` when the platform root cannot be determined, so callers fall
+    back to the plain data dir instead of guessing a machine-specific path.
+    """
+    if os.name == "nt":
+        base = os.environ.get("LOCALAPPDATA")
+        if not base:
+            return None
+        return Path(base) / "CodeBuddyExtension" / "Data" / "Public"
+    if sys.platform == "darwin":
+        return (
+            Path.home() / "Library" / "Application Support"
+            / "CodeBuddyExtension" / "Data" / "Public"
+        )
+    xdg = os.environ.get("XDG_DATA_HOME")
+    root = Path(xdg) if xdg else Path.home() / ".local" / "share"
+    return root / "CodeBuddyExtension" / "Data" / "Public"
+
+
+def _workbuddy_path_segment(value):
+    """WorkBuddy only accepts plain path segments as account ids."""
+    return bool(re.fullmatch(r"[A-Za-z0-9._-]+", value or "")) and value not in (".", "..")
+
+
+def workbuddy_prompt_dir(home):
+    """Account-scoped WorkBuddy dir holding the shared `MEMORY.md` prompt file.
+
+    CC Switch writes WorkBuddy prompts to `user_data_dir()`, which is
+    `<data dir>/user-<uid>-<enterpriseId|personal>` for the signed-in account and the
+    plain data dir when the logged-out marker exists (upstream
+    `services/workbuddy_account/mod.rs`). WorkBuddy must be fully quit while CCS
+    switches accounts, otherwise it writes the current login back.
+    """
+    root = Path(home)
+    if (root / "workbuddy-desktop.info.logged-out").exists():
+        return root, "logged-out"
+    shared = workbuddy_system_shared_data_dir()
+    if shared is None:
+        return root, "no-account-info"
+    info = shared / "auth" / "workbuddy-desktop.info"
+    try:
+        payload = json.loads(info.read_text(encoding="utf-8"))
+    except Exception:
+        return root, "no-account-info"
+    account = payload.get("account") if isinstance(payload, dict) else None
+    account = account if isinstance(account, dict) else {}
+    uid = account.get("uid")
+    if not isinstance(uid, str) or not _workbuddy_path_segment(uid):
+        return root, "no-account-info"
+    scope = account.get("enterpriseId")
+    if not isinstance(scope, str) or not scope.strip():
+        scope = "personal"
+    return root / f"user-{uid}-{scope}", "account"
 
 
 def dsh_profile_paths(home):
@@ -1674,7 +1773,8 @@ def cmd_set_flags(args):
             f"{args.table}: column(s) not present in this CCS schema: {', '.join(missing)}; "
             "upgrade CC Switch (enabled_pi needs 4.0+, enabled_agy needs 4.0.18+, "
             "enabled_kimi needs 4.0.19+, enabled_omp needs 4.0.20+, "
-            "enabled_dsh needs 4.0.22+, enabled_mcode needs 3.20.4+)"
+            "enabled_dsh needs 4.0.22+, enabled_copilot needs 4.0.29+ (schema v25), "
+            "enabled_workbuddy needs 4.0.31+ (schema v26), enabled_mcode needs 3.20.4+)"
         )
     row = cur.execute(f"SELECT name FROM {args.table} WHERE name=?", (args.name,)).fetchone()
     if not row:
@@ -1891,6 +1991,21 @@ def cmd_doctor(args):
     )
     print(f"dsh_home:   {dsh_dir}  source={dsh_source}")
 
+    copilot_dir, copilot_source = copilot_home()
+    copilot_providers, copilot_providers_source = copilot_providers_path(copilot_dir)
+    print(
+        f"copilot_home: {copilot_dir}  source={copilot_source}  "
+        f"providers={copilot_providers}  source={copilot_providers_source}  "
+        f"exists={copilot_providers.exists()}"
+    )
+    wb_dir, wb_source = workbuddy_home()
+    wb_prompt_dir, wb_prompt_state = workbuddy_prompt_dir(wb_dir)
+    print(
+        f"workbuddy_home: {wb_dir}  source={wb_source}  "
+        f"models_exists={(wb_dir / 'models.json').exists()}  "
+        f"prompt_dir={wb_prompt_dir}  account={wb_prompt_state}"
+    )
+
     if common_config_removed(db_path):
         print(
             "common-config: removed in CC Switch 4.0 (schema v20) — "
@@ -2092,14 +2207,44 @@ def codex_obsolete_key_issues(text):
     return issues
 
 
-def codex_catalog_pointer_value(path):
-    """Return the CCS-owned catalog pointer form used by CC Switch 4.0.27+."""
+CATALOG_FILENAME = "cc-switch-model-catalog.json"
+WSL_DESKTOP_KEY = "runCodexInWindowsSubsystemForLinux"
+
+
+def codex_desktop_runs_codex_in_wsl(text):
+    r"""True when the Codex desktop app runs Codex inside WSL (CCS 4.0.29, #9375).
+
+    In that mode the Windows `config.toml` is read by a Linux Codex binary, where a
+    `C:\...` catalog path resolves relative to the config directory and the desktop app
+    fails at startup with `os error 2`. CC Switch therefore writes the bare filename.
+    """
+    if os.name != "nt":
+        return False
+    try:
+        data = tomllib.loads(text)
+    except Exception:
+        return False
+    desktop = data.get("desktop")
+    if not isinstance(desktop, dict):
+        return False
+    return desktop.get(WSL_DESKTOP_KEY) is True
+
+
+def codex_catalog_pointer_value(path, text=None):
+    """Return the CCS-owned catalog pointer form used by CC Switch 4.0.27+.
+
+    4.0.29 added the WSL branch: when `[desktop] runCodexInWindowsSubsystemForLinux`
+    is true the pointer stays a bare filename, otherwise a native config dir gets an
+    absolute path and WSL/UNC config dirs keep the filename.
+    """
     config_path = Path(path)
-    catalog_path = config_path.parent / "cc-switch-model-catalog.json"
+    catalog_path = config_path.parent / CATALOG_FILENAME
     rendered = str(catalog_path)
     is_unc = rendered.startswith(r"\\") or rendered.startswith("//")
     if is_unc or not catalog_path.is_absolute():
-        return "cc-switch-model-catalog.json"
+        return CATALOG_FILENAME
+    if text is not None and codex_desktop_runs_codex_in_wsl(text):
+        return CATALOG_FILENAME
     return rendered
 
 
@@ -2111,11 +2256,18 @@ def codex_catalog_pointer_issues(text, path):
     actual = data.get("model_catalog_json")
     if not isinstance(actual, str):
         return []
-    if Path(actual).name != "cc-switch-model-catalog.json":
+    if Path(actual).name != CATALOG_FILENAME:
         return []
-    expected = codex_catalog_pointer_value(path)
-    if expected == "cc-switch-model-catalog.json":
-        return []
+    expected = codex_catalog_pointer_value(path, text)
+    if expected == CATALOG_FILENAME:
+        if not Path(actual).is_absolute():
+            return []
+        return [
+            "model_catalog_json is an absolute path, but Codex desktop runs Codex in WSL "
+            f"(desktop.{WSL_DESKTOP_KEY} = true): Windows paths break startup there "
+            f"(upstream #9375). Expected the bare filename {CATALOG_FILENAME!r}; "
+            "run 'repair --mode codex-catalog-path'"
+        ]
     if Path(actual).is_absolute():
         return []
     return [
@@ -2130,10 +2282,13 @@ def repair_codex_catalog_pointer(text, path):
     except Exception:
         return text, []
     actual = data.get("model_catalog_json")
-    if not isinstance(actual, str) or Path(actual).name != "cc-switch-model-catalog.json":
+    if not isinstance(actual, str) or Path(actual).name != CATALOG_FILENAME:
         return text, []
-    expected = codex_catalog_pointer_value(path)
-    if expected == "cc-switch-model-catalog.json" or Path(actual).is_absolute():
+    expected = codex_catalog_pointer_value(path, text)
+    if expected == CATALOG_FILENAME:
+        if not Path(actual).is_absolute():
+            return text, []
+    elif Path(actual).is_absolute():
         return text, []
     sections = parse_sections(text)
     preamble = next((section for section in sections if section[0] is None), None)
@@ -3767,6 +3922,7 @@ def build_parser():
             "enable_codex", "enable_claude", "enable_gemini", "enable_opencode",
             "enable_hermes", "enable_grokbuild", "enable_mcode", "enable_pi",
             "enable_agy", "enable_kimi", "enable_omp", "enable_dsh",
+            "enable_copilot", "enable_workbuddy",
         ):
             sp.add_argument(f"--{flag.replace('_', '-')}", dest=flag, action="store_true", default=False)
 
@@ -3859,7 +4015,7 @@ def build_parser():
     f.add_argument("--name", required=True)
     for key in (
         "codex", "claude", "gemini", "opencode", "hermes", "grokbuild", "mcode", "pi",
-        "agy", "kimi", "omp", "dsh",
+        "agy", "kimi", "omp", "dsh", "copilot", "workbuddy",
     ):
         f.add_argument(f"--{key}", type=int, choices=(0, 1), default=None, help="1 = enable, 0 = disable")
     f.set_defaults(func=cmd_set_flags)
