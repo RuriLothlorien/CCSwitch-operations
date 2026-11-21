@@ -456,9 +456,18 @@ def cmd_skill_upsert(args):
             f"SELECT {', '.join(col_names)} FROM skills WHERE id=?", (skill_id,)
         ).fetchone()
         warn = _flag_disabled_warning("skills", prev, flag_cols, values)
+    # CC Switch 4.0.34 (schema v27) added `skills.repo_host`: the site a skill
+    # was installed from (github.com by default, plus GitLab/Gitea/Forgejo).
+    # NULL reads as github.com, so a local skill stays NULL unless the caller
+    # names a host.
+    has_repo_host = "repo_host" in table_columns(con, "skills")
+    repo_host = (getattr(args, "repo_host", None) or "").strip() or None
     if existing:
         sets = ["name=?", "description=?", "directory=?"]
         params = [args.name, desc, directory]
+        if has_repo_host and repo_host is not None:
+            sets.append("repo_host=?")
+            params.append(repo_host)
         sets += [f"{col}=?" for col in col_names]
         params += values
         sets += ["content_hash=?", "updated_at=?"]
@@ -474,6 +483,10 @@ def cmd_skill_upsert(args):
         ] + col_names + ["installed_at", "content_hash", "updated_at"]
         params = [skill_id, args.name, desc, directory, None, None, None, None]
         params += values + [now, content_hash, now]
+        if has_repo_host:
+            # Appended at the tail so it stays aligned with `cols`.
+            cols.append("repo_host")
+            params.append(repo_host)
         cur.execute(
             f"INSERT INTO skills ({', '.join(cols)}) "
             f"VALUES ({', '.join('?' * len(cols))})",
@@ -1301,6 +1314,40 @@ def _dsh_validate_provider(provider_id, config):
     return api_key, api_key_env
 
 
+# Keys accepted by DSH's `llm-pi-ai` schema for a model's `reasoningEfforts`
+# map (CCS 4.0.38 `src-tauri/src/dsh_config.rs` DSH_REASONING_EFFORT_LEVELS).
+DSH_REASONING_EFFORT_LEVELS = (
+    "off", "minimal", "low", "medium", "high", "xhigh", "max",
+)
+
+
+def normalize_reasoning_efforts(value):
+    """Mirror CCS 4.0.38 `normalize_reasoning_efforts` (#9785).
+
+    `llm-pi-ai` accepts `false`, or a non-empty map keyed by
+    [`DSH_REASONING_EFFORT_LEVELS`] whose values are `string | null`. YAML 1.1
+    parsers turn an unquoted `off: null` into the boolean key `false`, and DSH
+    then rejects the whole provider block over that one bad entry, which is why
+    every third-party provider disappears. Map `"false"` back to `"off"` when
+    `"off"` is absent, and drop unknown keys or invalid value types.
+
+    Returns ``None`` when nothing usable is left, so the caller removes the key.
+    """
+    if value is False:
+        return False
+    if not isinstance(value, dict):
+        return None
+    normalized = {}
+    for key, entry in value.items():
+        if not (isinstance(entry, str) or entry is None):
+            continue
+        if key in DSH_REASONING_EFFORT_LEVELS:
+            normalized[key] = entry
+        elif key == "false" and "off" not in normalized:
+            normalized["off"] = entry
+    return normalized or None
+
+
 def _dsh_native_provider(provider_id, config, credentials_text):
     api_key, api_key_env = _dsh_validate_provider(provider_id, config)
     cfg = json.loads(json.dumps(config, ensure_ascii=False))
@@ -1363,10 +1410,17 @@ def _dsh_native_provider(provider_id, config, credentials_text):
         reasoning = model.pop("reasoning", None)
         if reasoning is False:
             model["reasoningEfforts"] = False
-        elif reasoning is True and "reasoningEfforts" not in model:
-            model["reasoningEfforts"] = {
-                "off": None, "low": "low", "medium": "medium", "high": "high"
-            }
+        else:
+            if "reasoningEfforts" in model:
+                normalized = normalize_reasoning_efforts(model["reasoningEfforts"])
+                if normalized is None:
+                    model.pop("reasoningEfforts", None)
+                else:
+                    model["reasoningEfforts"] = normalized
+            if reasoning is True and "reasoningEfforts" not in model:
+                model["reasoningEfforts"] = {
+                    "off": None, "low": "low", "medium": "medium", "high": "high"
+                }
         models.append(model)
     native["models"] = models
     return native, credentials_text
@@ -1863,6 +1917,10 @@ def cmd_check(args):
     if getattr(args, "strict", False):
         cc_home, db_path = resolve_paths(args)
         issues = collect_structural_issues(cc_home, db_path)
+        dsh_dir, _dsh_source = resolve_dsh_home(
+            args, cc_home=cc_home, strict_settings=False
+        )
+        issues += collect_dsh_issues(dsh_dir)
         if issues:
             print("[STRICT] structural issues:")
             for iss in issues[:80]:
@@ -1923,6 +1981,30 @@ def cmd_doctor(args):
             for app, col in FLAG_COLUMNS
         )
         print(f"{table} flag columns: {availability}")
+    skill_cols = table_columns(con, "skills")
+    if "repo_host" in skill_cols:
+        host_counts = {}
+        for row in cur.execute(
+            "SELECT COALESCE(NULLIF(TRIM(repo_host), ''), 'github.com') AS host, "
+            "COUNT(*) AS n FROM skills GROUP BY host ORDER BY n DESC, host"
+        ):
+            host_counts[row["host"]] = row["n"]
+        detail = " ".join(f"{host}={n}" for host, n in host_counts.items()) or "(no skills)"
+        print(f"skills repo_host: {detail}  (NULL reads as github.com)")
+    else:
+        print("skills repo_host: column absent (pre-4.0.34 schema)")
+    repo_cols = table_columns(con, "skill_repos")
+    if "host" in repo_cols:
+        repo_counts = {}
+        for row in cur.execute(
+            "SELECT COALESCE(NULLIF(TRIM(host), ''), 'github.com') AS host, "
+            "COUNT(*) AS n FROM skill_repos GROUP BY host ORDER BY n DESC, host"
+        ):
+            repo_counts[row["host"]] = row["n"]
+        detail = " ".join(f"{host}={n}" for host, n in repo_counts.items()) or "(no repos)"
+        print(f"skill_repos host: {detail}")
+    else:
+        print("skill_repos host: column absent (pre-4.0.34 schema)")
     con.close()
 
     settings_obj = None
@@ -2065,6 +2147,11 @@ def cmd_doctor(args):
             )
 
     issues = collect_structural_issues(cc_home, db_path)
+    dsh_dir_for_audit, _dsh_audit_source = resolve_dsh_home(
+        args, cc_home=cc_home, strict_settings=False
+    )
+    dsh_issues = collect_dsh_issues(dsh_dir_for_audit)
+    issues += dsh_issues
     if issues:
         print(f"structural issues: {len(issues)} (run 'doctor --audit' or 'check --strict' for details)")
     else:
@@ -2077,6 +2164,14 @@ def cmd_doctor(args):
                 print("  -", iss)
         else:
             print("  no structural issues")
+        unreadable = collect_unreadable_entries(db_path)
+        if unreadable:
+            print(f"  unreadable entries: {len(unreadable)} (CC Switch 4.0.37+ keeps "
+                  "them; they cannot be edited or enabled here)")
+            for table, label, row_id, reason in unreadable[:40]:
+                print(f"    {table}[{label}] id={row_id}: {reason}")
+        else:
+            print("  unreadable entries: 0")
         con = connect(db_path)
         panel_names = {
             r["id"] for r in con.execute(
@@ -2094,7 +2189,14 @@ def cmd_doctor(args):
         for r in con.execute(
             "SELECT id, name, settings_config FROM providers WHERE app_type='codex'"
         ):
-            cfg = json.loads(r["settings_config"] or "{}").get("config", "")
+            try:
+                cfg = json.loads(r["settings_config"] or "{}").get("config", "")
+            except Exception:
+                # Unreadable row (CCS 4.0.37+): reported above, nothing to compare.
+                print(f"  provider[{r['name']}] mcp: skipped (unreadable settings_config)")
+                continue
+            if not isinstance(cfg, str):
+                cfg = ""
             prov_names = {
                 path[1]
                 for h, path, _, _ in parse_sections(cfg)
@@ -3289,6 +3391,169 @@ def _pair_instructions_markers(text):
     return text
 
 
+def dsh_reasoning_effort_issues(text, provider_id=None):
+    """Report `reasoningEfforts` maps DSH's `llm-pi-ai` schema would reject.
+
+    CCS 4.0.38 (#9785) normalized the `false` key YAML 1.1 parsers produce for
+    an unquoted `off`, dropped unknown levels and non-`string | null` values.
+    Older CCS builds wrote those through, and DSH then discards the provider
+    block that carries one. This scans the raw YAML text so a profile written
+    by another tool still gets audited. Returns [] for text it cannot read.
+    """
+    if not text:
+        return []
+    issues = []
+    lines = text.splitlines()
+    current = None
+    in_efforts = False
+    efforts_indent = 0
+    for idx, line in enumerate(lines):
+        if not _meaningful(line):
+            continue
+        indent = _line_indent(line)
+        stripped = line.strip()
+        if indent <= 6 and stripped.endswith(":") and not stripped.startswith("-"):
+            current = stripped[:-1].strip('"').strip("'")
+            in_efforts = False
+            continue
+        if in_efforts and indent <= efforts_indent:
+            in_efforts = False
+        if re.match(r"^reasoningEfforts:\s*(.*)$", stripped):
+            value = stripped.split(":", 1)[1].strip()
+            if value in ("false", "true"):
+                in_efforts = False
+                continue
+            if value and value not in ("{}", "null", "~"):
+                if value.startswith("{") or not value.startswith("{"):
+                    issues.append(
+                        f"line {idx + 1}: flow/unsupported reasoningEfforts "
+                        f"({value!r}); DSH needs a block map keyed by "
+                        f"{'/'.join(DSH_REASONING_EFFORT_LEVELS)}"
+                    )
+                continue
+            in_efforts = True
+            efforts_indent = indent
+            continue
+        if in_efforts:
+            key, _, raw = stripped.partition(":")
+            key = key.strip().strip('"').strip("'")
+            raw = raw.strip()
+            if key == "false":
+                issues.append(
+                    f"line {idx + 1}: reasoningEfforts key 'false' (YAML 1.1 turned "
+                    "an unquoted `off` into a boolean); DSH rejects the whole provider "
+                    "block — rewrite it as 'off' (#9785)"
+                )
+            elif key not in DSH_REASONING_EFFORT_LEVELS:
+                issues.append(
+                    f"line {idx + 1}: reasoningEfforts level {key!r} is not one of "
+                    f"{'/'.join(DSH_REASONING_EFFORT_LEVELS)}; DSH drops it (#9785)"
+                )
+            elif raw not in ("null", "~", "") and not (
+                raw.startswith('"') or raw.startswith("'")
+            ):
+                issues.append(
+                    f"line {idx + 1}: reasoningEfforts value {raw!r} is not a string or "
+                    "null; DSH drops it (#9785)"
+                )
+    if provider_id:
+        issues = [f"dsh provider[{provider_id}]: {iss}" for iss in issues]
+    return issues
+
+
+def collect_dsh_issues(dsh_dir):
+    """Audit every DSH profile patch file for invalid reasoningEfforts (#9785)."""
+    issues = []
+    for path in dsh_profile_paths(dsh_dir):
+        if not path.exists():
+            continue
+        try:
+            text = path.read_text(encoding="utf-8-sig")
+        except Exception:
+            continue
+        profile = path.parent.name
+        for iss in dsh_reasoning_effort_issues(text):
+            issues.append(f"dsh[{profile}]: {iss}")
+    return issues
+
+
+def collect_unreadable_entries(db_path):
+    """Rows CC Switch 4.0.37+ keeps but cannot read (`settings_config` / `server_config`).
+
+    CCS 4.0.37 (#9767) stopped treating an unreadable provider or MCP row as an
+    empty config: the row is listed as-is, cannot be edited or enabled, is
+    skipped by failover, and rejects the edit. Before that the same row would
+    quietly overwrite defaults on the next save, so this helper surfaces it
+    instead of swallowing the parse error.
+    """
+    entries = []
+    con = None
+    try:
+        con = connect(db_path)
+        cur = con.cursor()
+        try:
+            rows = cur.execute(
+                "SELECT id, app_type, name, settings_config FROM providers ORDER BY app_type, name"
+            ).fetchall()
+        except sqlite3.OperationalError:
+            rows = []
+        for r in rows:
+            raw = r["settings_config"]
+            if not raw or not str(raw).strip():
+                continue
+            try:
+                obj = json.loads(raw)
+            except Exception as exc:
+                entries.append(
+                    (
+                        "providers",
+                        f"{r['app_type']}/{r['name']}",
+                        r["id"],
+                        f"{type(exc).__name__}: {exc}",
+                    )
+                )
+                continue
+            if not isinstance(obj, dict):
+                entries.append(
+                    (
+                        "providers",
+                        f"{r['app_type']}/{r['name']}",
+                        r["id"],
+                        f"top-level JSON value is {type(obj).__name__}, not an object",
+                    )
+                )
+        try:
+            rows = cur.execute(
+                "SELECT name, server_config FROM mcp_servers ORDER BY name"
+            ).fetchall()
+        except sqlite3.OperationalError:
+            rows = []
+        for r in rows:
+            raw = r["server_config"]
+            if not raw or not str(raw).strip():
+                continue
+            try:
+                obj = json.loads(raw)
+            except Exception as exc:
+                entries.append(
+                    ("mcp_servers", r["name"], r["name"], f"{type(exc).__name__}: {exc}")
+                )
+                continue
+            if not isinstance(obj, dict):
+                entries.append(
+                    (
+                        "mcp_servers",
+                        r["name"],
+                        r["name"],
+                        f"top-level JSON value is {type(obj).__name__}, not an object",
+                    )
+                )
+    finally:
+        if con:
+            con.close()
+    return entries
+
+
 def collect_structural_issues(
     cc_home, db_path, targets=("providers", "config", "common", "keys", "mcp-type")
 ):
@@ -3310,7 +3575,13 @@ def collect_structural_issues(
             for r in rows:
                 try:
                     obj = json.loads(r["settings_config"] or "{}")
-                except Exception:
+                except Exception as exc:
+                    issues.append(
+                        f"provider[{r['name']}] unreadable settings_config "
+                        f"({type(exc).__name__}): CC Switch 4.0.37+ keeps it as an "
+                        "unreadable entry — it cannot be edited or enabled, and "
+                        "failover skips it"
+                    )
                     continue
                 try:
                     meta = json.loads(r["meta"] or "{}")
@@ -3340,6 +3611,31 @@ def collect_structural_issues(
                 ):
                     for iss in codex_mcp_type_issues(cfg):
                         issues.append(f"provider[{r['name']}]: {iss}")
+            if "providers" in targets:
+                try:
+                    mcp_rows = cur.execute(
+                        "SELECT name, server_config FROM mcp_servers ORDER BY name"
+                    ).fetchall()
+                except sqlite3.OperationalError:
+                    mcp_rows = []
+                for r in mcp_rows:
+                    raw = r["server_config"]
+                    if not raw or not str(raw).strip():
+                        continue
+                    try:
+                        obj = json.loads(raw)
+                    except Exception as exc:
+                        issues.append(
+                            f"mcp_servers[{r['name']}] unreadable server_config "
+                            f"({type(exc).__name__}): CC Switch 4.0.37+ keeps it as an "
+                            "unreadable entry — it cannot be edited or enabled"
+                        )
+                        continue
+                    if not isinstance(obj, dict):
+                        issues.append(
+                            f"mcp_servers[{r['name']}] server_config top-level JSON value "
+                            f"is {type(obj).__name__}, not an object"
+                        )
         if "common" in targets and not common_config_removed(db_path):
             for app in ("codex", "claude", "gemini"):
                 row = cur.execute(
@@ -3642,6 +3938,16 @@ def cmd_repair(args):
         _reject_structured_provider_edit(getattr(args, "app_type", None))
     if mode == "codex-catalog-path" and target != "config.toml":
         raise SystemExit("--mode codex-catalog-path only applies to --target config.toml")
+    if mode == "live-only" and target == "config.toml":
+        raise SystemExit(
+            "refusing: --mode live-only on --target config.toml would strip the live "
+            "Codex config's own sections ([plugins], [marketplaces], [projects], "
+            "[desktop], [features], [memories], [windows], [sandbox_workspace_write], "
+            "[shell_environment_policy], [hooks.state]) and destroy user content.\n"
+            "  live-only sections are only wrong inside *provider* configs, so use:\n"
+            "    repair --target provider --provider-id <id> --mode live-only\n"
+            "  (--mode both on --target provider also covers it.)"
+        )
 
     if target == "config.toml":
         path = codex_config_path()
@@ -3951,6 +4257,11 @@ def build_parser():
     k.add_argument("--description-file")
     k.add_argument("--content-hash")
     k.add_argument(
+        "--repo-host",
+        help="repository site this skill came from (CCS 4.0.34+, e.g. github.com, "
+             "gitlab.com, codeberg.org); NULL reads as github.com",
+    )
+    k.add_argument(
         "--preserve-flags",
         action="store_true",
         help="keep every existing enabled_* value when refreshing an existing skill",
@@ -4022,11 +4333,13 @@ def build_parser():
 
     c = sub.add_parser("check")
     c.add_argument("--strict", action="store_true", help="also run structural safety checks")
+    c.add_argument("--dsh-home", help="DeepSeek Harness home to audit (default: resolved)")
     c.set_defaults(func=cmd_check)
 
     d = sub.add_parser("doctor")
     d.add_argument("--audit", action="store_true", help="run three-way consistency audit")
     d.add_argument("--compare-backup", metavar="DB", help="diff current DB against a backup DB")
+    d.add_argument("--dsh-home", help="DeepSeek Harness home to report (default: resolved)")
     d.set_defaults(func=cmd_doctor)
 
     sn = sub.add_parser(
@@ -4048,7 +4361,10 @@ def build_parser():
             "mcp-type", "codex-catalog-path", "codex-0167",
         ),
         default="both",
-        help="codex-key restores auth.OPENAI_API_KEY (provider target only); mcp-type strips "
+        help="live-only is provider-target only: on --target config.toml it is refused, "
+             "because the live config legitimately owns those sections and stripping them "
+             "destroys [plugins]/[marketplaces]/[projects]. codex-key restores "
+             "auth.OPENAI_API_KEY (provider target only); mcp-type strips "
              "type/timeout/autoApprove lines that Codex rejects; codex-catalog-path makes "
              "the CCS-owned live catalog pointer absolute for native Codex config dirs; "
              "codex-0167 removes settings such as disable_response_storage that Codex 0.167 rejects",

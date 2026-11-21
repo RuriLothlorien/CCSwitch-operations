@@ -38,8 +38,8 @@ This skill turns safe maintenance into one repeatable workflow:
 
 ## Compatibility
 
-- Designed and tested with **CC Switch 4.0.32 / Codex 0.167** (database schema v26). 4.0.30 and 4.0.32 do not migrate the database; 4.0.20 moved v22 to v23 with MCP `enabled_omp`, 4.0.22 moved v23 to v24 with MCP/Skills `enabled_dsh` and internal `session_log_sync.parser_state`, 4.0.29 moved v24 to v25 with MCP/Skills `enabled_copilot`, and 4.0.31 moved v25 to v26 with MCP/Skills `enabled_workbuddy`. Older releases cannot open the migrated database.
-- Historical databases remain readable where required columns exist: v17 (3.20.0), v18 (3.20.1–3.20.3), v19 (3.20.4), v20 (4.0.16–4.0.17), v21 (4.0.18), v22 (4.0.19), v23 (4.0.20–4.0.21), and v24 (4.0.22–4.0.28).
+- Designed and tested with **CC Switch 4.0.38 / Codex 0.169** (database schema v27). 4.0.30, 4.0.32, 4.0.33 and 4.0.35–4.0.38 do not migrate the database; 4.0.20 moved v22 to v23 with MCP `enabled_omp`, 4.0.22 moved v23 to v24 with MCP/Skills `enabled_dsh` and internal `session_log_sync.parser_state`, 4.0.29 moved v24 to v25 with MCP/Skills `enabled_copilot`, 4.0.31 moved v25 to v26 with MCP/Skills `enabled_workbuddy`, and 4.0.34 moved v26 to v27 with `skills.repo_host` and `skill_repos.host`. Older releases cannot open the migrated database.
+- Historical databases remain readable where required columns exist: v17 (3.20.0), v18 (3.20.1–3.20.3), v19 (3.20.4), v20 (4.0.16–4.0.17), v21 (4.0.18), v22 (4.0.19), v23 (4.0.20–4.0.21), v24 (4.0.22–4.0.28), v25 (4.0.29–4.0.30) and v26 (4.0.31–4.0.33). The two v27 columns need no backfill: `NULL` always reads as `github.com`.
 - What 4.0 changes: **the common-config snippet feature is gone** (shared settings now live in the client config file and survive provider switches; a model or effort picked inside the client reverts to the provider's value on switch); a third mode, **stack/aggregation** (Claude Code and Codex, plus Claude Desktop since 4.0.13; per-model dispatch, no failover; state in the device-local `~/.cc-switch/live-state.json`, Claude Code models in `providers.meta.stackModels`); config writing replaces only key fields (the #6719 fix); MCP syncs to Pi (`~/.pi/agent/mcp.json`, `enabled_pi`); Codex 0.158+'s MCP `type` rejection is fixed (CCS 4.0 strips it on write); optional Codex session compression writes `[features] local_thread_store_compression`; GitHub Copilot accounts work on Codex (router on).
 - **`common-config` only works on CCS ≤ 3.20.4 (schema ≤ v19)**; on v20 every `common-config` subcommand is refused with guidance: shared keys belong in the client live config, provider-specific fields in the card (`provider-block` / `provider-set-key` / `provider-env`).
 - mcode needs 3.20.4+; Pi needs 4.0+; Antigravity (`--enable-agy`) needs 4.0.18+; Kimi Code (`--enable-kimi`) needs 4.0.19+; Oh My Pi (`--enable-omp`) needs 4.0.20+; DeepSeek Harness (`--enable-dsh`) needs 4.0.22+; GitHub Copilot CLI (`--enable-copilot`) needs 4.0.29+ (schema v25); Tencent WorkBuddy (`--enable-workbuddy`) needs 4.0.31+ (schema v26). DSH resolves its directory as **CCS setting → `DSH_HOME` → `~/.dsh`** with `--dsh-home` as an explicit helper override; Copilot resolves `COPILOT_HOME` → `~/.copilot` and WorkBuddy `WORKBUDDY_CONFIG_DIR` → `~/.workbuddy`, and `doctor` prints the resolved path and source.
@@ -48,6 +48,7 @@ This skill turns safe maintenance into one repeatable workflow:
 - Codex 0.167 removed `disable_response_storage`. `check --strict` detects legacy lines, and `repair --mode codex-0167` removes them from live config or provider cards; CC Switch 4.0.28 also clears the live line on its next switch.
 - A 4.0.28 route may intentionally keep the built-in `openai` selector and point `openai_base_url` at the local CC Switch router. This is a session-bucket contract, not the old keyless misroute; the `codex-0149` repair recognizes and preserves it.
 - Legacy 3.20.x behavior (missing-`model_provider` takeover routing, universal-sync child settings, proxy retry/timeout cross-writes, Kimi/DeepSeek presets) and the full 4.0 change list are in `references/migration.md`.
+- **4.0.36–4.0.38 highlights**: the new **Plugins page** (Claude Code, Codex, Grok Build, MiniMax Code, OpenClaw, Pi; the first three also manage marketplaces `[marketplaces]`, and disabling a Codex plugin only flips `enabled` under `[plugins."<plugin>@<marketplace>"]`); skill repositories now support **GitLab / Gitea / Forgejo** and **private repositories** (tokens live in the OS credential manager and never travel with cloud sync); **unreadable provider/MCP entries are preserved as-is** (not editable or enableable, deletable on their own, skipped by failover); and the root cause behind **disappearing DeepSeek Harness providers is fixed** (a YAML tool rewrote the `off` reasoning level as `false`, which made DSH reject the whole provider block; 4.0.38 corrects it on read and write, `#9785`).
 - Proxy-managed OAuth cards (xAI OAuth / GitHub Copilot) are forced to `requires_openai_auth = false` (the local proxy injects the token); `check --strict` flags the wrong value, and `repair --mode codex-0149` fixes it early.
 - Run `python scripts/ccs_db.py doctor` to check the schema, each app's current mode (direct/route/stack), malformed state files, and the Codex auth-preservation guard before operating.
 - Other versions may behave differently; see `references/migration.md` for official version behavior changes.
@@ -184,10 +185,10 @@ Set `CC_SWITCH_HOME` to override the CC Switch home directory (default: `~/.cc-s
 To package the skill into a distributable zip (for example to install it in CC Switch or share it manually):
 
 ```bash
-python scripts/build-zip.py --version 1.6.0
+python scripts/build-zip.py --version 1.7.0
 ```
 
-Output: `dist/CCSwitch-operations-v1.6.0.zip`.
+Output: `dist/CCSwitch-operations-v1.7.0.zip`.
 
 ## License
 

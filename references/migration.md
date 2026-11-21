@@ -2,7 +2,7 @@
 
 只记录 CC Switch 官方版本带来的行为变化；不包含任何用户/环境相关说明。
 
-## 4.0（正式版 4.0.4，2026-10-06；含 4.0.5–4.0.32 修复）
+## 4.0（正式版 4.0.4，2026-10-06；含 4.0.5–4.0.38 修复）
 
 - **数据库迁移 v19 → v20**：`mcp_servers` 新增 `enabled_pi`（MCP 同步到 Pi 1.0）。首次启动自动迁移并尝试备份到 `<cc-home>/backups/`；运行过 4.0 后 3.x 会以“数据库版本过新”拒绝打开。
 - **配置写入重写（#6719 修复）**：供应商编辑页保存只替换地址、Key、模型等关键字段，其余内容（顶层键、`[plugins]`/`[projects]`/`[mcp_servers.*]`、注释、`# >>> … <<<` 标记）逐字节保留；零改动保存与保存前逐字节一致；不再剥离/合并通用配置；url-only 远程 MCP 不再写成空 `command`，Codex 的 `[mcp_servers.*]` 不再写 `type`。**已损坏的存量条目不会自动修**：在 MCP 面板把服务器关掉再打开重写，或用本技能 `check --strict` / `repair` / `mcp-upsert`。
@@ -32,7 +32,13 @@
 - **4.0.30**：新增**隐私过滤器**（设置→数据，默认关闭）：路由/聚合转发前把邮箱、中国大陆手机号、身份证、银行卡、IPv4（回环除外）、API Key/Token/私钥及「密码是…」类上下文替换为占位符；不动模型回复、思考、工具调用参数与图片，工具结果默认不过滤；**直连不过滤**，替换不可逆。另修有 ChatGPT 登录时第三方路由被带上只有 OpenAI 认的字段导致整条 400（#9042/#9077）、工具调用参数重复键每轮 400（#9339）。无 schema 迁移。
 - **4.0.31**：新增第 16 个应用 **腾讯 WorkBuddy（`workbuddy`）**；schema v25→v26，MCP/Skills 增加 `enabled_workbuddy`。累加模式，自定义模型写进 WorkBuddy 自己的 `models.json`（菜单显示为「名称:模型ID」，只支持 OpenAI Chat Completions，同一模型 ID 不能出现两次），官方账号并进授权中心；同步 MCP（`mcp.json`）、Skills、全局提示词（账号目录下的 `MEMORY.md`）。**切换账号前必须完全退出 WorkBuddy（含托盘）**，否则它会把当前登录写回。隐私过滤器改到请求发出前最后一步（覆盖故障转移重试与 CCS 生成的压缩摘要）；`CLAUDE_CODE_SUBAGENT_MODEL_FORCE` 现在随供应商写入 `settings.json`（#9451/#9455）；启用 Skill 的符号链接失败会带系统错误码。新增德语界面。
 - **4.0.32**：新增「设置→关于→自动下载更新」（默认关，每设备单独设，便携版与 Linux deb/rpm 不可用）与「设置→网络→IP 检测」（出口 IP、双检测服务一致性、国家/地区/城市/运营商；指定代理连不上时不改直连）。CCS 内部写操作崩溃后可恢复并回滚未写完的改动（数据库、设置、配置文件、MCP、提示词、价格、备份），不再需要重启才能切供应商；统一 Codex 历史或迁移后改写 `.jsonl` 保留原修改时间，旧会话不再排到 `codex resume` 最前（#3866/#9471）。Codex 换供应商续接旧会话先 200 后报「Encrypted function output content could not be decrypted」（#9476）与 Codex 经路由接 Mistral 的 422（#9507）均在同一家自动重试一次/剥离 Responses 专用字段。schema 仍为 v26。
-- **升级须知**：升级前建议手动再备份一次；Codex 模型目录/会话分组的修复要等下一次写入；已有 MCP 配置重新同步一次；运行过 4.0.29 后数据库为 v25、运行过 4.0.31 后为 v26，旧版 CCS 会拒绝打开。支持 Agy/Kimi 完整标志需 v1.4.0+；支持 OMP/DSH 与 schema v24 需 v1.5.0+；对齐 4.0.24–4.0.27 的软链接、DSH 和哈希语义需 v1.5.1+；对齐 4.0.28 / Codex 0.167 的会话诊断、本地路由识别和废弃键修复需 v1.5.2+；DSH 技能名兼容和保留启用标志的哈希刷新需 v1.5.3+；Copilot/WorkBuddy（schema v26）与 WSL catalog 指针需 v1.6.0+。
+- **4.0.33**：Claude Code 切回官方时不再"先删后用"——先把要删的地址、凭据、模型映射改写成空值（运行中的会话下一条请求就切换到官方），约 10 秒后才真正删除这些键；Skill 更新改为**先完整复制到新目录再替换**，中途失败保留原版本（#9521），不再因复制中断留下半个技能目录。schema 仍为 v26。
+- **4.0.34**：**数据库迁移 v26 → v27**：`skill_repos` 新增 `host TEXT NOT NULL DEFAULT 'github.com'`，`skills` 新增 `repo_host TEXT`（可空）。老行无需回填——`host` 有列默认值，`repo_host` 为 `NULL` 时按 `github.com` 读。技能仓库从"只有 GitHub"扩展为 **GitHub / GitLab / Gitea / Forgejo**（含自建实例与 Codeberg），`owner/name` 仍按 GitHub 的写法解析；只支持公开仓库、地址必须 https；同一个 `owner/name` 只能落在一个站点。另：WorkBuddy 手动添加模型可设思考强度；S3 配置可清除；Skills 目录里有失效软链接时云同步上传不再整体失败（Windows `os error 5`，跳过并告警）。
+- **4.0.35**：Codex `/goal` 完整目标展示；请求 ID 可复制；GPT-6.2 价格；Codex 卡片按 Codex 0.169.0 报版本；Codex 聚合模式 Responses-Lite 的 `reasoning.context` 缺失修复；**Skill 的托管副本不在时也能卸载**（#9669）。schema 仍为 v27。
+- **4.0.36**：**新增「插件」页面**——Claude Code、Codex、Grok Build、MiniMax Code、OpenClaw、Pi 六个应用可安装/启用/更新/卸载插件，其中 Claude Code、Codex、Grok Build 还能管理插件市场（`[marketplaces]`）；对 Codex，停用插件**只改** `config.toml` 里 `[plugins."<插件>@<市场>"]` 的 `enabled`，该表其余字段和注释不动。**技能仓库支持非公开仓库**：按站点把访问令牌存进系统凭据管理器，不写数据库、不随云同步。供应商新增费用倍率 `cost_multiplier`（只对经本地路由的请求生效；`providers.cost_multiplier`/`limit_daily_usd`/`limit_monthly_usd`/`provider_type`/`in_failover_queue` 这些列在最早的表结构里就有，不是本版新增）。DeepSeek Harness 的 **home 级 `cordis.patch.yml` 里的 MCP 不读也不写**，导入对话框已明说。schema 仍为 v27。
+- **4.0.37**：**读不出来的供应商/MCP 条目改为原样保留**（#9767）——不再被当作空配置、保存时也不会覆盖成默认值；这类条目不可编辑、不可启用，可以单独删除（只删 CCS 里的记录，不动各应用配置文件），故障转移会跳过它，修改这一条会被拒绝；存在这类条目时，累加式应用（如 OpenCode）的全量同步会直接报错。Claude Code 的 1M 标记改写为小写 `[1m]`。Pi 新增 Mistral AI 预设（`cc-switch-mistral`，协议 `mistral-conversations`）。技能仓库下载超时改为"连续 60 秒无数据"才中止、总上限 10 分钟。工具调用参数里以 `_` 开头的字段不再被删除。Codex 模型目录探测带上登录 shell 的 PATH。路由请求体上限 200 MiB。schema 仍为 v27。
+- **4.0.38**：修复**DeepSeek Harness 第三方供应商全部消失**（#9785）：`cordis.patch.yml` 被某些 YAML 工具保存后，思考档位里的 `off` 会变成 `false`，而 DSH 只要看到一个非法档位键就判定整段供应商配置无效。CCS 现在读写时都会纠正——`false` 改回 `off`，不认识的档位去掉，值不是字符串/null 的条目去掉，清空后删除整个 `reasoningEfforts`。另一处：Codex 手选的思考等级（如 `max`/`ultra`）不再被官方模型目录覆盖。WorkBuddy 支持 `ccswitch://` 一键导入；Linux 增加 Antigravity 账号切换；技能仓库指向非 GitHub/GitLab/Gitea 站点时会报"下载到的不是压缩包"而不是"0 个技能"。schema 仍为 v27。
+- **升级须知**：升级前建议手动再备份一次；Codex 模型目录/会话分组的修复要等下一次写入；已有 MCP 配置重新同步一次；运行过 4.0.29 后数据库为 v25、运行过 4.0.31 后为 v26、运行过 4.0.34 后为 v27，旧版 CCS 会拒绝打开。支持 Agy/Kimi 完整标志需 v1.4.0+；支持 OMP/DSH 与 schema v24 需 v1.5.0+；对齐 4.0.24–4.0.27 的软链接、DSH 和哈希语义需 v1.5.1+；对齐 4.0.28 / Codex 0.167 的会话诊断、本地路由识别和废弃键修复需 v1.5.2+；DSH 技能名兼容和保留启用标志的哈希刷新需 v1.5.3+；Copilot/WorkBuddy（schema v26）与 WSL catalog 指针需 v1.6.0+；对齐 4.0.33–4.0.38（schema v27、`repo_host`、不可读条目、DSH 思考档位规范化、live-only 护栏）需 v1.7.0+。
 
 ## 3.20.4（2026-09-22）
 

@@ -38,8 +38,8 @@ CC Switch 的配置分散在数据库、`settings.json` 和多个应用的 live 
 
 ## 版本兼容
 
-- 本技能基于 **CC Switch 4.0.32 / Codex 0.167**（数据库 schema v26）设计与测试。4.0.30 与 4.0.32 没有数据库迁移；4.0.20 把 v22 升到 v23（MCP `enabled_omp`），4.0.22 把 v23 升到 v24（MCP/Skills `enabled_dsh` 与内部 `session_log_sync.parser_state`），4.0.29 把 v24 升到 v25（MCP/Skills `enabled_copilot`），4.0.31 把 v25 升到 v26（MCP/Skills `enabled_workbuddy`）。迁移后旧版 CCS 会以“数据库版本过新”拒绝打开——升级前请保留自动备份。
-- 历史库仍按列兼容读取：v17（3.20.0）、v18（3.20.1–3.20.3）、v19（3.20.4）、v20（4.0.16–4.0.17）、v21（4.0.18）、v22（4.0.19）、v23（4.0.20–4.0.21）、v24（4.0.22–4.0.28）；一旦升级到 v25/v26，旧版 CCS 将无法直接打开数据库。
+- 本技能基于 **CC Switch 4.0.38 / Codex 0.169**（数据库 schema v27）设计与测试。4.0.30、4.0.32、4.0.33、4.0.35–4.0.38 没有数据库迁移；4.0.20 把 v22 升到 v23（MCP `enabled_omp`），4.0.22 把 v23 升到 v24（MCP/Skills `enabled_dsh` 与内部 `session_log_sync.parser_state`），4.0.29 把 v24 升到 v25（MCP/Skills `enabled_copilot`），4.0.31 把 v25 升到 v26（MCP/Skills `enabled_workbuddy`），4.0.34 把 v26 升到 v27（`skills.repo_host` 与 `skill_repos.host`）。迁移后旧版 CCS 会以“数据库版本过新”拒绝打开——升级前请保留自动备份。
+- 历史库仍按列兼容读取：v17（3.20.0）、v18（3.20.1–3.20.3）、v19（3.20.4）、v20（4.0.16–4.0.17）、v21（4.0.18）、v22（4.0.19）、v23（4.0.20–4.0.21）、v24（4.0.22–4.0.28）、v25（4.0.29–4.0.30）、v26（4.0.31–4.0.33）；一旦升级到 v27，旧版 CCS 将无法直接打开数据库。v27 新增的两列无需回填，`NULL` 一律按 `github.com` 读取。
 - CCS 4.0 行为变化：**通用配置片段功能已移除**（共享设置直接留在客户端配置文件里并跨切换保留；临时在客户端选的模型/推理强度，切走再切回会恢复为供应商设定值）；新增**聚合（Stack）模式**（Claude Code、Codex，以及 4.0.13 起的 Claude Desktop；按所选模型分发、不提供故障转移，状态在设备本地 `~/.cc-switch/live-state.json`，Claude Code 的发布模型在 `providers.meta.stackModels`）；配置写入改为“只替换关键字段”；MCP 支持 Pi（`~/.pi/agent/mcp.json`，v20 的 `enabled_pi`）；Codex 0.158+ 的 MCP `type` 字段问题已修（CCS 4.0 写入时剥离）；可选压缩 Codex 历史会话（写 `[features] local_thread_store_compression`）。
 - **`common-config` 命令只适用于 CCS ≤ 3.20.4（schema ≤ v19）**；在 v20 上所有 `common-config` 子命令都会被明确拒绝并提示新做法：共享键写客户端 live 配置，供应商专属字段写卡片（`provider-block` / `provider-set-key` / `provider-env`）。
 - mcode 需要 3.20.4+；Pi 需要 4.0+；Antigravity（`--enable-agy`）需要 4.0.18+；Kimi Code（`--enable-kimi`）需要 4.0.19+；Oh My Pi（`--enable-omp`）需要 4.0.20+；DeepSeek Harness（`--enable-dsh`）需要 4.0.22+；GitHub Copilot CLI（`--enable-copilot`）需要 4.0.29+（schema v25）；腾讯 WorkBuddy（`--enable-workbuddy`）需要 4.0.31+（schema v26）。DSH 的配置目录按 **CCS 设置 → `DSH_HOME` → `~/.dsh`** 解析，也可用 `--dsh-home` 显式指定；Copilot 数据目录按 `COPILOT_HOME` → `~/.copilot`、WorkBuddy 按 `WORKBUDDY_CONFIG_DIR` → `~/.workbuddy` 解析，`doctor` 会打印最终路径与来源。
@@ -48,6 +48,7 @@ CC Switch 的配置分散在数据库、`settings.json` 和多个应用的 live 
 - Codex 0.167 已移除 `disable_response_storage`。`check --strict` 会检测遗留行，`repair --mode codex-0167` 可从 live 配置或 provider 卡中清理；CCS 4.0.28 下次切换也会自动清掉 live 中的旧行。
 - 4.0.28 的路由模式可能故意保留内置 `openai` 选择器并写 `openai_base_url` 指向 CCS 本地路由。这属于会话分组契约，不是旧的密钥误路由；本技能的 `codex-0149` 修复会识别并保持该形态。
 - 3.20.x 遗留行为（Codex `model_provider` 缺省卡的接管路由、统一同步的子卡设置、代理重试/超时串写、Kimi/DeepSeek 预设等）与 4.0 的完整变化见 `references/migration.md`。
+- **4.0.36–4.0.38 重点**：新增**插件页**（Claude Code、Codex、Grok Build、MiniMax Code、OpenClaw、Pi；前三者还能管插件市场 `[marketplaces]`，Codex 停用插件只改 `[plugins."<插件>@<市场>"]` 的 `enabled`）；技能仓库支持 **GitLab / Gitea / Forgejo** 与**非公开仓库**（令牌存系统凭据管理器、不随云同步）；**读不出来的供应商/MCP 条目会被原样保留**（不可编辑或启用、可单独删除、故障转移跳过）；**DeepSeek Harness 供应商全部消失的根因已修**（YAML 工具把思考档位 `off` 写成 `false` 导致 DSH 判定整段供应商无效，4.0.38 读写时都会纠正，`#9785`）。
 - 操作前可运行 `python scripts/ccs_db.py doctor` 查看 schema、各应用当前模式（直连/路由/聚合）与关键安全告警。
 - 其他版本可能略有差异，详见 `references/migration.md` 的官方版本行为变化。
 
@@ -182,10 +183,10 @@ python scripts/ccs_db.py set-flags --table skills --name my-skill --mcode 1
 如需手动打包为可分发的 zip（例如导入 CC Switch 或手动分享）：
 
 ```bash
-python scripts/build-zip.py --version 1.6.0
+python scripts/build-zip.py --version 1.7.0
 ```
 
-输出：`dist/CCSwitch-operations-v1.6.0.zip`。
+输出：`dist/CCSwitch-operations-v1.7.0.zip`。
 
 ## 文档
 

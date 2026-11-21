@@ -1,6 +1,6 @@
 # CC Switch 架构速查
 
-## 数据库 `<cc-home>/cc-switch.db`（CCS 4.0.31–4.0.32 = schema v26；4.0.29–4.0.30 = v25；4.0.22–4.0.28 = v24；4.0.20–4.0.21 = v23；4.0.19 = v22；4.0.18 = v21；4.0.16–4.0.17 = v20；CCS 3.20.4 = v19；3.20.1–3.20.3 = v18；3.20.0 = v17）
+## 数据库 `<cc-home>/cc-switch.db`（CCS 4.0.34–4.0.38 = schema v27；4.0.31–4.0.33 = v26；4.0.29–4.0.30 = v25；4.0.22–4.0.28 = v24；4.0.20–4.0.21 = v23；4.0.19 = v22；4.0.18 = v21；4.0.16–4.0.17 = v20；CCS 3.20.4 = v19；3.20.1–3.20.3 = v18；3.20.0 = v17）
 
 `cc-home` 解析顺序：`CC_SWITCH_HOME` 环境变量 → `~/.cc-switch`。
 
@@ -10,13 +10,13 @@
 | --- | --- | --- |
 | providers | 各应用下的供应商 | app_type(16 个应用), settings_config(JSON：`config` TOML / `env` / `modelCatalog`；mcode `name/kind/enabled/api/options/models`；kimi `provider/models`；agy 终端启动；omp `models.yml` 卡片；dsh `api/options/models` 卡片；copilot `{provider, models, reasoningEffort}`；workbuddy 模型条目), provider_type, is_current, meta |
 | prompts | 全局提示词 | app_type(codex/claude/claude-desktop/gemini/grokbuild/opencode/openclaw/hermes/pi/mcode/kimi/agy/omp/dsh/copilot/workbuddy；Claude Desktop 不支持), name(`全局`), content, enabled |
-| skills | skill 管理 | id(`local:<name>`), name, directory, repo_owner/repo_name/repo_branch/readme_url, enabled_codex/claude/gemini/opencode/hermes/grokbuild/mcode/agy/kimi/dsh/copilot/workbuddy, installed_at, content_hash；Pi/OMP 按存在判定，v24 新增 `enabled_dsh`、v25 `enabled_copilot`、v26 `enabled_workbuddy` |
+| skills | skill 管理 | id(`local:<name>`), name, directory, repo_owner/repo_name/repo_branch/readme_url, **repo_host（v27，`NULL` 按 `github.com` 读）**, enabled_codex/claude/gemini/opencode/hermes/grokbuild/mcode/agy/kimi/dsh/copilot/workbuddy, installed_at, content_hash；Pi/OMP 按存在判定，v24 新增 `enabled_dsh`、v25 `enabled_copilot`、v26 `enabled_workbuddy`、v27 `repo_host` |
 | mcp_servers | MCP 面板 | id(slug), name, server_config(JSON), description, tags, enabled_codex/claude/gemini/opencode/hermes/grokbuild/mcode/pi/agy/kimi/omp/dsh/copilot/workbuddy（v23 `enabled_omp`、v24 `enabled_dsh`、v25 `enabled_copilot`、v26 `enabled_workbuddy`）。只放用户自建/CCS 管理的服务器 |
 | settings | 通用配置 | key(common_config_codex/common_config_claude/claude_desktop_gateway_token/official_providers_seeded/...), value |
 
 ### CCS 自管表（不要手改）
 
-`model_pricing`、`profiles`、`provider_endpoints`、`provider_health`、`proxy_config`、`proxy_live_backup`、`proxy_request_logs`、`session_log_sync`（v18 字节游标/尾部指纹；v24 `parser_state`）、`session_usage_dedup`（v17）、`skill_repos`、`stream_check_logs`、`usage_daily_rollups` —— 用量、代理、故障转移、Profile、repo skill 安装都在这里，改坏会被 CCS 回写或导致面板异常。
+`model_pricing`、`profiles`、`provider_endpoints`、`provider_health`、`proxy_config`、`proxy_live_backup`、`proxy_request_logs`、`session_log_sync`（v18 字节游标/尾部指纹；v24 `parser_state`）、`session_usage_dedup`（v17）、`skill_repos`（v27 新增 `host`，默认 `github.com`，可为 `gitlab.com`/`codeberg.org`/自建 Gitea/Forgejo；只支持公开或非公开 https 仓库，且同一个 `owner/name` 只能落在一个站点）、`stream_check_logs`、`usage_daily_rollups` —— 用量、代理、故障转移、Profile、repo skill 安装都在这里，改坏会被 CCS 回写或导致面板异常。非公开仓库的访问令牌存在系统凭据管理器里（不写库、不随云同步），不要尝试从数据库读取或搬运。
 
 ## settings.json（`<cc-home>/settings.json`）
 
@@ -27,6 +27,7 @@
 - `dshConfigDir`：DeepSeek Harness 主目录覆盖（4.0.26+，也可填 WSL/UNC 路径）。解析顺序是 CCS 设置 → `DSH_HOME` → `~/.dsh`；本技能的 `--dsh-home` 是对全部三者的显式覆盖。
 - `privacyFilter`（4.0.30+，默认关闭）：仅在**路由/聚合**转发前替换邮箱、手机号、身份证、银行卡、IPv4（回环除外）与 API Key/Token/私钥，直连与工具结果（默认）不处理；占位符不可逆，会让按原文定位的编辑对不上。
 - 4.0.32 新增「自动下载更新」与「IP 检测」均为 UI/设备级设置，不进备份，也不影响技能写入。
+- 4.0.36 起新增插件页（6 个应用），对 Codex 只改 `[plugins."<plugin>@<marketplace>"]` 的 `enabled`，配置里其余内容与注释不动；插件市场 `[marketplaces.*]` 由该页维护，属 live 段落，**不得**被当成“混入供应商卡的多余段落”清理。
 
 ## 生效链路
 
@@ -59,7 +60,7 @@
 - **Codex 会话压缩（4.0.7）**：开关直接改 `config.toml`，写入 `[features] local_thread_store_compression = true`；Codex 启动时把 7 天以上没动过的会话压成同名 `.jsonl.zst`（CCS 不另存该设置；直接读 `.jsonl` 的第三方工具可能读不到压缩会话）。
 - **恢复 `.db` 备份（3.20 行为变化）**：恢复后会按新库**重写所有受管应用的 live 配置（Pi 除外）**，而旧版只改数据库——恢复后仍需复核 MCP 三处一致。
 
-## 受管应用（CCS 4.0.32 共 16 个）与 Skills 目录
+## 受管应用（CCS 4.0.38 共 16 个）与 Skills 目录
 
 见 references/apps.md 的完整矩阵。
 

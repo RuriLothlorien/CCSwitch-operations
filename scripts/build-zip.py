@@ -60,7 +60,7 @@ def validate_skill(repo: Path) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Build the CCSwitch-operations skill zip")
-    parser.add_argument("--version", default="1.6.0", help="version used in the zip filename")
+    parser.add_argument("--version", default="1.7.0", help="version used in the zip filename")
     parser.add_argument("--repo", type=Path, default=Path(__file__).resolve().parent.parent)
     parser.add_argument("--out-dir", type=Path, default=None, help="defaults to <repo>/dist")
     args = parser.parse_args()

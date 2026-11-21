@@ -86,7 +86,11 @@ python $S prompt-set --app-type codex --content-file prompts_codex.txt
 ```powershell
 python $S skill-upsert --name my-skill --description "我的技能" --enable-codex
 python $S skill-upsert --name my-skill --preserve-flags
+# 来自非 GitHub 站点的 repo 技能（CCS 4.0.34+，schema v27）：显式写归属，否则默认 github.com
+python $S skill-upsert --name my-skill --repo-owner o --repo-name r --repo-branch main --repo-host gitlab.com
 ```
+
+`skills.repo_host` 为 `NULL` 时 CCS 按 `github.com` 读；v27 之前的库没有该列，本技能会自动跳过写入（不会报错）。刷新已装技能时记得带 `--preserve-flags`，否则 `--enable-*` 的全量语义会把没传的应用标志清零。
 
 编辑本地 skill 后必须重跑一次刷新 `content_hash`；已有记录使用 `--preserve-flags` 可避免未传的 `--enable-*` 把已启用应用置 0。工具按 CCS 4.0.27 的完整目录语义计算，并忽略隐藏文件、`__pycache__/`、`*.pyc`。技能技术名必须是小写 kebab-case，DSH 会静默跳过不合规的 frontmatter `name`；目录名可以与 `name` 不同。repo 安装的 skill（`repo_owner` 非空）不要手改；Pi 没有 DB 开关（存在即启用）。
 
@@ -199,6 +203,7 @@ python scripts/ccs_db.py repair --target config.toml --mode header-order
 python scripts/ccs_db.py repair --target config.toml --mode codex-catalog-path
 python scripts/ccs_db.py repair --target config.toml --mode codex-0167
 python scripts/ccs_db.py repair --target provider --provider-id <id> --mode live-only --apply
+# 注意：--mode live-only 只对 --target provider 有效；对 config.toml 会被拒绝（会删掉 live 的 [plugins]/[projects] 等段）
 python scripts/ccs_db.py repair --target common --mode both --apply
 
 # provider-block 替换后自动做语义校验
@@ -316,18 +321,18 @@ DSH 目录解析顺序：`--dsh-home` → CCS 4.0.26+ `settings.json:dshConfigDi
 
 可直接从 `references/examples/dsh-provider.json` 复制模板；示例中不含真实凭据。
 
-### CC Switch 4.0.32 升级后复核
+### CC Switch 4.0.38 升级后复核
 
 ```bash
-python scripts/ccs_db.py doctor                                    # schema v26 + 16 应用 + 标志列 + 目录解析 + 模式/安全告警
-python scripts/ccs_db.py check --strict
-python scripts/ccs_db.py doctor --audit
+python scripts/ccs_db.py doctor                                    # schema v27 + 16 应用 + 标志列 + 目录解析 + 模式/安全告警
+python scripts/ccs_db.py check --strict                            # 含结构、DSH 思考档位与不可读条目检查
+python scripts/ccs_db.py doctor --audit                            # 含 unreadable entries 明细
 python scripts/ccs_db.py repair --target config.toml --mode mcp-type    # dry-run：清 type/timeout/autoApprove
 python scripts/ccs_db.py repair --target config.toml --mode codex-catalog-path  # dry-run：相对目录指针
 python scripts/ccs_db.py repair --target config.toml --mode codex-0167  # dry-run：Codex 0.167 废弃键
 ```
 
-要点：4.0.29 升 v25（`enabled_copilot`），4.0.31 升 v26（`enabled_workbuddy`）；4.0.30、4.0.32 无 schema 迁移。4.0.20 升 v23（`enabled_omp`），4.0.22 升 v24（`enabled_dsh` + `parser_state`）。Codex MCP 旧 live 配置可用 `repair --mode mcp-type` 清理 `type`、`timeout`、`autoApprove`。`common-config` 已移除。Claude Desktop 从 4.0.13 起支持直连/路由/聚合；跨供应商 Codex 子代理开关是 `codexStackClassicTools`。`doctor` 警告 `preserveCodexOfficialAuthOnSwitch` 未开启时，若使用依赖 `auth.json` 的 Codex 构建，应在 CCS 设置中打开。
+要点：4.0.29 升 v25（`enabled_copilot`），4.0.31 升 v26（`enabled_workbuddy`），4.0.34 升 v27（`skills.repo_host` + `skill_repos.host`）；4.0.30、4.0.32、4.0.33、4.0.35–4.0.38 无 schema 迁移。4.0.20 升 v23（`enabled_omp`），4.0.22 升 v24（`enabled_dsh` + `parser_state`）。Codex MCP 旧 live 配置可用 `repair --mode mcp-type` 清理 `type`、`timeout`、`autoApprove`。`common-config` 已移除。Claude Desktop 从 4.0.13 起支持直连/路由/聚合；跨供应商 Codex 子代理开关是 `codexStackClassicTools`。`doctor` 警告 `preserveCodexOfficialAuthOnSwitch` 未开启时，若使用依赖 `auth.json` 的 Codex 构建，应在 CCS 设置中打开。
 
 4.0.25+ 的 MCP 连通性检查会实际握手或启动本地命令，和 `doctor --audit` 的结构一致性不是一回事；本技能不会为了“验证”而执行未知 MCP。4.0.27+ 配置和 Skill 写入支持软链接；本技能的事务写入同样保留链接。
 
@@ -344,6 +349,14 @@ python scripts/ccs_db.py repair --target config.toml --mode codex-0167  # dry-ru
 - **Copilot CLI**：`providers.json` 只在进程环境没有 `COPILOT_PROVIDER_BASE_URL` 时才被读取；排查「自定义供应商不生效」先看环境变量，不要改数据库。
 - **WorkBuddy**：`models.json` 的 `ccSwitchProviderId` 之外条目属用户或 WorkBuddy 自己，只读；切账号前完全退出 WorkBuddy。
 - **隐私过滤器**：只在路由/聚合生效、占位符不可逆；不要用它处理需要按原文定位的配置编辑。
+
+4.0.33–4.0.38 重点：
+
+- **`repair --mode live-only` 只对 provider 卡生效**：`--target config.toml --mode live-only` 会被直接拒绝，因为它会把 live 的 `[plugins]`、`[marketplaces]`、`[projects]`、`[desktop]`、`[features]`、`[memories]`、`[windows]`、`[sandbox_workspace_write]`、`[shell_environment_policy]` 全部当成多余段落删掉（实测 46 段）。要清 live 就只用具体模式（`mcp-type` / `codex-0167` / `codex-catalog-path`）或 `--mode both`。
+- **DSH 思考档位**：`dsh-provider-set` 会按 4.0.38 规则规范化 `reasoningEfforts`——`false`→`off`、只留 `off/minimal/low/medium/high/xhigh/max`、值必须是字符串或 null、清空后删键。`check --strict` 和 `doctor` 先报出坏档位，preflight 会拦住写入。
+- **不可读条目（4.0.37+）**：`settings_config` / `server_config` 解析失败的行会被 CCS 原样保留、不可编辑/启用、可单独删除、故障转移跳过。`check --strict` 报出这些行，`doctor --audit` 的 `unreadable entries` 段列明细；修之前先确认要不要保留，**不要**盲目重写成默认值。
+- **插件页（4.0.36+）**：只覆盖 claude/codex/grokbuild/mcode/openclaw/pi；对 Codex 只改 `[plugins."<插件>@<市场>"].enabled`。本技能不做插件增删。
+- **技能仓库（4.0.34+）**：`skill-upsert --repo-host <host>` 写 `skills.repo_host`；`doctor` 打印 host 分布；非公开仓库令牌在系统凭据管理器，不要尝试读取或搬运。
 
 ### MCP `type` 与 Pi 同步（4.0）
 

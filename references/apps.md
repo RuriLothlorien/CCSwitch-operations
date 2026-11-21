@@ -1,4 +1,4 @@
-# 十六大受管应用矩阵（CCS 4.0.32）
+# 十六大受管应用矩阵（CCS 4.0.38）
 
 路径均使用可移植写法：`~` 在 Windows 上等同于 `%USERPROFILE%`；macOS/Linux 为 `$HOME`。
 
@@ -40,3 +40,27 @@
 - **GitHub Copilot CLI（4.0.29+，`copilot`）**：数据目录按 `COPILOT_HOME` → `~/.copilot` 解析，`providers.json` 可用 `COPILOT_PROVIDERS_CONFIG` 指向别处。一张 BYOK 卡＝一个供应商条目＋它自己的模型，靠卡片 id 关联；`/model` 里显示为 `<卡片id>/<模型>`。CCS 只动属于自己的条目，其他条目与顺序原样保留；写入前按 Copilot 规则校验整份文档，因为写坏会让 Copilot 完全起不来。官方登录卡不写任何文件。这些卡是累加的，**永远不经过 CCS 本地路由**，provider-* 命令必须拒绝。打开终端时 CCS 会清掉 `COPILOT_PROVIDER_*` 环境变量——只要进程环境里有 `COPILOT_PROVIDER_BASE_URL`，Copilot 就不再读 `providers.json`。
 - **Tencent WorkBuddy（4.0.31+，`workbuddy`）**：数据目录按 `WORKBUDDY_CONFIG_DIR` → `~/.workbuddy` 解析。供应商被**平铺**成 `models.json` 里一条条模型（每条自带 url/apiKey，无供应商层级），用 `ccSwitchProviderId` 标记归属；菜单显示为 `名称:模型ID`，同一模型 ID 只能属于一张卡。只支持 OpenAI Chat Completions 格式。官方卡只绑定授权中心账号，不写 `models.json`；WorkBuddy 自己加的模型和连接器管理的 MCP 条目原样保留。**切换账号前必须完全退出 WorkBuddy（含托盘/菜单栏）**，否则它会把当前登录写回去。全局提示词写账号目录（`user-<uid>-<scope>`，缺省 scope 为 `personal`，已登出时为数据根）下的 `MEMORY.md`，不是 `AGENTS.md`。会话可列举但终端不能恢复；provider-* 命令必须拒绝。
 - **MiniMax Code（mcode，3.20.4+）**：数据目录按 `MINIMAX_DATA_DIR` → `MAVIS_DATA_DIR` → `~/.minimax` 解析；默认模型、登录、云端功能与会话删除都归 MiniMax 自己，CCS 不参与本地代理、故障转移、托盘、通用配置与 Profiles。MCP/Skills 对 mcode 默认关闭（`enabled_mcode=0`），手动打开前 CCS 不写 `~/.minimax`；供应商是 YAML `custom_provider` 条目（本技能不支持编辑，请走 CCS 界面），本技能只管理它的提示词、Skills 与 MCP 启用标志。
+
+## 插件页（CCS 4.0.36+）
+
+「插件」页面只覆盖下列 6 个应用，其余应用没有插件概念，不要试图给它们写插件条目：
+
+| 应用 | 安装/启用/更新/卸载 | 插件市场（`[marketplaces]`） |
+| --- | --- | --- |
+| claude | 支持 | 支持 |
+| codex | 支持 | 支持 |
+| grokbuild | 支持 | 支持 |
+| mcode | 支持 | 不支持 |
+| openclaw | 支持 | 不支持 |
+| pi | 支持 | 不支持 |
+
+- **Codex 插件写入面**：停用/启用插件**只改** `config.toml` 里 `[plugins."<插件>@<市场>"]` 的 `enabled` 布尔值，该表其余字段、同文件其它表与注释逐字节保留。插件市场写在 `[marketplaces.<市场>]` 里（含 `source_type`、`source` 等字段，本地源形如 `source = '\\?\C:\...'`）。
+- **`[plugins]` 与 `[marketplaces]` 属于 live 段**：它们只应存在于 live `config.toml`，绝不能出现在供应商卡的 `settings_config.config` 里；反过来，**任何 repair 都不得把它们从 live 配置中删除**（`repair --mode live-only` 因此只允许 `--target provider`）。
+- 本技能不提供插件增删命令：插件属于 CCS 界面管理的结构化数据，直接改库会与 `[plugins.*]` 的 live 状态脱节。需要核对一致性时用 `doctor --audit`。
+
+## 技能仓库（CCS 4.0.34+）
+
+- 支持站点：`github.com`、`gitlab.com`、`codeberg.org`（Gitea）、自建 Gitea/Forgejo 实例；**只支持 https**，地址必须是可直接下载压缩包的仓库。
+- 归属记录：`skill_repos.host`（v27，默认 `github.com`）与 `skills.repo_host`（v27，可空，**`NULL` 按 `github.com` 读**）；同一个 `owner/name` 只能登记在一个站点下。
+- 非公开仓库（4.0.36+）：访问令牌存在**系统凭据管理器**，不写数据库、不随云同步；本技能不读、不写、不搬运该令牌。
+- 手工刷新 repo 技能时用 `skill-upsert --repo-host <host>` 写入归属，避免默认成 `github.com` 把条目指错站点。
